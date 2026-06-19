@@ -48,6 +48,16 @@ describe('accommodationSupplierCatalog', () => {
     const sql = mockRunQuery.mock.calls[0]![0] as string
     expect(sql).toContain("O''Brien")
   })
+
+  it('normalizes null destination_country from warehouse rows', async () => {
+    mockRunQuery.mockResolvedValue([
+      { supplier_id: 8, name: 'Camp Without Country', code: 'CW', destination_country: null },
+    ])
+
+    const result = await accommodationSupplierCatalog('Camp')
+
+    expect(result[0]?.destination_country).toBe('')
+  })
 })
 
 describe('accommodationSupplierCatalogForTerms', () => {

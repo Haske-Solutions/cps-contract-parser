@@ -3,13 +3,20 @@ import {
   InvokeModelCommand,
 } from '@aws-sdk/client-bedrock-runtime'
 import { defaultProvider } from '@aws-sdk/credential-provider-node'
-import { BEDROCK_MODEL_ID } from '../../shared/constants'
+import {
+  BEDROCK_MODEL_ID,
+  PARSER_RETRY_BASE_DELAY_MS,
+  PARSER_RETRY_MAX_ATTEMPTS,
+  PARSER_RETRY_MAX_DELAY_MS,
+} from '../../shared/constants'
 import {
   assertPdfPair,
   parseClaudeResponseText,
   pdfDocumentBlocks,
 } from '../../shared/parserInvoke'
+import { isBedrockThrottleError, isTransientNetworkError, withRetry } from '../../shared/retry'
 import { getAwsRegion, getAwsProfile } from './keystoreService'
+import { logger } from './logger'
 
 type ClaudeContentBlock = { type: string; text?: string }
 type ClaudeResponse = { content: ClaudeContentBlock[]; stop_reason: string }
@@ -27,6 +34,42 @@ async function buildClient(options?: BedrockClientOptions): Promise<BedrockRunti
     region,
     credentials: defaultProvider(profile ? { profile } : {}),
   })
+}
+
+function mapBedrockError(err: unknown, region: string): Error {
+  const msg = err instanceof Error ? err.message : String(err)
+  if (/access\s*denied|accessdenied|unauthorized|credentials|expired|sso/i.test(msg)) {
+    return new Error(
+      'Could not authenticate with Amazon Bedrock. For local SSO, run `aws sso login` and set your AWS profile in Settings. In production, ensure the IAM role has Bedrock access.',
+    )
+  }
+  if (/invalid.*model|model identifier/i.test(msg)) {
+    return new Error(
+      `Bedrock model "${BEDROCK_MODEL_ID}" is not available in region ${region}. Enable Claude Sonnet 4.6 in the Bedrock console (Model access) and confirm your IAM role can invoke inference profile us.anthropic.claude-sonnet-4-6.`,
+    )
+  }
+  if (isBedrockThrottleError(err)) {
+    return new Error('Bedrock is temporarily busy. Please wait a moment and retry extraction.')
+  }
+  if (isTransientNetworkError(err)) {
+    return new Error('Network error while contacting Bedrock. Please retry extraction.')
+  }
+  return new Error(`Extraction failed: ${msg}`)
+}
+
+function shouldRetryBedrock(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  if (/authenticate|access\s*denied|unauthorized|invalid.*model/i.test(error.message)) {
+    return false
+  }
+  return isBedrockThrottleError(error) || isTransientNetworkError(error)
+}
+
+async function sendInvoke(
+  client: BedrockRuntimeClient,
+  command: InvokeModelCommand,
+): Promise<{ body: Uint8Array }> {
+  return client.send(command)
 }
 
 export async function invokeClaude(
@@ -60,25 +103,26 @@ export async function invokeClaude(
     body: JSON.stringify(requestBody),
   })
 
-  let response
+  let response: { body: Uint8Array }
   try {
-    response = await client.send(command)
+    response = await withRetry(
+      async () => sendInvoke(client, command),
+      {
+        maxAttempts: PARSER_RETRY_MAX_ATTEMPTS,
+        baseDelayMs: PARSER_RETRY_BASE_DELAY_MS,
+        maxDelayMs: PARSER_RETRY_MAX_DELAY_MS,
+        shouldRetry: shouldRetryBedrock,
+        onRetry: (error, attempt, delayMs) => {
+          logger.warn(
+            'bedrock',
+            `InvokeModel retry ${attempt}/${PARSER_RETRY_MAX_ATTEMPTS} in ${delayMs}ms`,
+            error,
+          )
+        },
+      },
+    )
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
-    if (/access\s*denied|accessdenied|unauthorized|credentials|expired|sso/i.test(msg)) {
-      throw new Error(
-        'Could not authenticate with Amazon Bedrock. For local SSO, run `aws sso login` and set your AWS profile in Settings. In production, ensure the IAM role has Bedrock access.',
-      )
-    }
-    if (/throttl|rate exceeded|too many requests/i.test(msg)) {
-      throw new Error('Bedrock is temporarily busy. Please wait a moment and retry extraction.')
-    }
-    if (/invalid.*model|model identifier/i.test(msg)) {
-      throw new Error(
-        `Bedrock model "${BEDROCK_MODEL_ID}" is not available in region ${region}. Enable Claude Sonnet 4.6 in the Bedrock console (Model access) and confirm your IAM role can invoke inference profile us.anthropic.claude-sonnet-4-6.`,
-      )
-    }
-    throw new Error(`Extraction failed: ${msg}`)
+    throw mapBedrockError(err, region)
   }
 
   const responseText = new TextDecoder().decode(response.body)

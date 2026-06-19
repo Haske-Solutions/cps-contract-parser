@@ -23,6 +23,7 @@ import { ParseSession } from './pages/ParseSession/ParseSession'
 import { History } from './pages/History/History'
 import { Settings } from './pages/Settings/Settings'
 import { ConfirmDialog } from './components/layout/ConfirmDialog'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { cn } from '@/lib/utils'
 import { useSessionStore } from './store/sessionStore'
 import { isSessionInProgress } from './lib/parseFlow'
@@ -72,6 +73,7 @@ export function App() {
   )
 
   return (
+    <ErrorBoundary>
     <TooltipProvider>
       <SidebarProvider>
         <a
@@ -185,5 +187,6 @@ export function App() {
         <Toaster />
       </SidebarProvider>
     </TooltipProvider>
+    </ErrorBoundary>
   )
 }

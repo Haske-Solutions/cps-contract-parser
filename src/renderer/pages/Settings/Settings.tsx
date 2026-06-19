@@ -158,7 +158,7 @@ export function Settings() {
             type="url"
             value={parserProxyUrl}
             onChange={(e) => setParserProxyUrl(e.target.value)}
-            placeholder="https://parser.example.com"
+            placeholder="https://api-cp.safarico.online"
             className="font-mono"
             autoComplete="off"
           />

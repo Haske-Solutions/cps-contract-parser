@@ -113,7 +113,7 @@ export async function generateBatchZip(
 
       archive.append(Buffer.from(workbook), { name: filename })
 
-      saveSession({
+      await saveSession({
         ...session,
         outputRows: rateRows,
         extrasRows,

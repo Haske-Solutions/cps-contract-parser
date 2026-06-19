@@ -25,6 +25,8 @@ parserRouter.get('/health', async (_req, res) => {
 })
 
 parserRouter.post('/discover', async (req, res) => {
+  const requestId = req.headers['x-request-id'] as string | undefined
+  console.log(`[discover] requestId=${requestId ?? 'none'}`)
   try {
     const body = req.body as DiscoverProxyRequest
     const ratePDF = decodePdfPayload(body.ratePDF, 'Rate sheet PDF')
@@ -50,6 +52,8 @@ parserRouter.post('/discover', async (req, res) => {
 })
 
 parserRouter.post('/extract', async (req, res) => {
+  const requestId = req.headers['x-request-id'] as string | undefined
+  console.log(`[extract] requestId=${requestId ?? 'none'}`)
   try {
     const body = req.body as ExtractProxyRequest
     const ratePDF = decodePdfPayload(body.ratePDF, 'Rate sheet PDF')

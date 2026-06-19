@@ -24,6 +24,27 @@ const api: ElectronAPI = {
         peCatalog,
         targets,
       ),
+    onExtractionProgress: (callback) => {
+      const listener = (_event: Electron.IpcRendererEvent, progress: import('../shared/types').ExtractionProgress) => {
+        callback(progress)
+      }
+      ipcRenderer.on('parser:extractionProgress', listener)
+      return () => {
+        ipcRenderer.removeListener('parser:extractionProgress', listener)
+      }
+    },
+    onExtractionPropertyComplete: (callback) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        payload: import('../shared/types').ExtractionPropertyComplete,
+      ) => {
+        callback(payload)
+      }
+      ipcRenderer.on('parser:extractionPropertyComplete', listener)
+      return () => {
+        ipcRenderer.removeListener('parser:extractionPropertyComplete', listener)
+      }
+    },
     confirmPolicies: (sessionId, policies) =>
       ipcRenderer.invoke('parser:confirmPolicies', sessionId, policies),
   },
@@ -81,6 +102,9 @@ const api: ElectronAPI = {
     getSession: (id) => ipcRenderer.invoke('history:getSession', id),
     deleteSession: (id) => ipcRenderer.invoke('history:deleteSession', id),
     clearAll: () => ipcRenderer.invoke('history:clearAll'),
+  },
+  renderer: {
+    reportError: (detail) => ipcRenderer.invoke('renderer:reportError', detail),
   },
 }
 

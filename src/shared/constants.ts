@@ -98,13 +98,21 @@ export const BEDROCK_MODEL_ID = 'us.anthropic.claude-sonnet-4-6'
 export const DEFAULT_BEDROCK_REGION = 'us-east-1'
 
 /** Default parser proxy URL for packaged app builds (override in Settings). */
-export const DEFAULT_PARSER_PROXY_URL = ''
+export const DEFAULT_PARSER_PROXY_URL = 'https://api-cp.safarico.online'
 
 /** Parser proxy HTTP timeout (client-side). */
 export const PARSER_PROXY_TIMEOUT_MS = 10 * 60 * 1000
 
+/** Bedrock / parser transient failure retries (exponential backoff). */
+export const PARSER_RETRY_MAX_ATTEMPTS = 4
+export const PARSER_RETRY_BASE_DELAY_MS = 1000
+export const PARSER_RETRY_MAX_DELAY_MS = 30_000
+
 /** Maximum properties that can be selected and reviewed per mapping batch. */
 export const MAX_PROPERTIES_PER_RUN = 5
+
+/** Max concurrent Bedrock extraction calls per batch. */
+export const MAX_CONCURRENT_EXTRACTIONS = 2
 
 export const POLICY_TYPE_LABELS: Record<string, string> = {
   CIOR: 'Child In Own Room (CIOR)',

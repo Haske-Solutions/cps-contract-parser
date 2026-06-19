@@ -61,7 +61,7 @@ Put **Caddy** or **nginx** in front with HTTPS before exposing publicly.
 
 Users who download the Electron app do **not** need AWS credentials. In **Settings → Parser API**:
 
-1. **Parser API URL** — e.g. `https://parser.yourdomain.com`
+1. **Parser API URL** — `https://api-cp.safarico.online` (pre-filled in packaged builds; override in Settings if needed)
 2. **API key** — the shared `PARSER_API_KEY` (stored in OS keychain)
 
 Use **Test Parser Connection** to verify.

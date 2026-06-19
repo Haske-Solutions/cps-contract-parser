@@ -3,9 +3,14 @@ import { createHash } from 'crypto'
 import { app } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
-import { DEFAULT_BEDROCK_REGION, DEFAULT_MOTHERDUCK_DATABASE, DEFAULT_PARSER_PROXY_URL } from '../../shared/constants'
+import {
+  DEFAULT_BEDROCK_REGION,
+  DEFAULT_MOTHERDUCK_DATABASE,
+  DEFAULT_PARSER_PROXY_URL,
+} from '../../shared/constants'
 import { maskSecret } from '../../shared/tokenDisplay'
 import type { MotherduckTokenPreview, ParserApiKeyPreview } from '../../shared/types'
+import { logger } from './logger'
 
 const KEYTAR_SERVICE = 'cps-contract-parser'
 const KEYTAR_ACCOUNT_MOTHERDUCK = 'motherduck-token'
@@ -19,30 +24,54 @@ interface AppConfig {
   parserApiKeySavedAt?: string
 }
 
+function defaultConfig(): AppConfig {
+  return {
+    awsRegion: DEFAULT_BEDROCK_REGION,
+    awsProfile: '',
+    parserProxyUrl: DEFAULT_PARSER_PROXY_URL,
+  }
+}
+
+let configCache: AppConfig = defaultConfig()
+let configLoaded = false
+let configLoadPromise: Promise<void> | null = null
+
 function configFilePath(): string {
   return path.join(app.getPath('userData'), 'config.json')
 }
 
-function readConfig(): AppConfig {
+async function readConfigFromDisk(): Promise<AppConfig> {
   try {
-    const raw = fs.readFileSync(configFilePath(), 'utf-8')
-    return {
-      awsRegion: DEFAULT_BEDROCK_REGION,
-      awsProfile: '',
-      parserProxyUrl: DEFAULT_PARSER_PROXY_URL,
-      ...JSON.parse(raw),
-    } as AppConfig
+    const raw = await fs.promises.readFile(configFilePath(), 'utf-8')
+    return { ...defaultConfig(), ...JSON.parse(raw) } as AppConfig
   } catch {
-    return {
-      awsRegion: DEFAULT_BEDROCK_REGION,
-      awsProfile: '',
-      parserProxyUrl: DEFAULT_PARSER_PROXY_URL,
-    }
+    return defaultConfig()
   }
 }
 
-function writeConfig(config: AppConfig): void {
-  fs.writeFileSync(configFilePath(), JSON.stringify(config, null, 2), 'utf-8')
+export async function initKeystoreConfig(): Promise<void> {
+  if (configLoaded) return
+  if (!configLoadPromise) {
+    configLoadPromise = (async () => {
+      configCache = await readConfigFromDisk()
+      configLoaded = true
+    })()
+  }
+  await configLoadPromise
+}
+
+function readConfig(): AppConfig {
+  return configCache
+}
+
+async function persistConfig(config: AppConfig): Promise<void> {
+  configCache = config
+  try {
+    await fs.promises.writeFile(configFilePath(), JSON.stringify(config, null, 2), 'utf-8')
+  } catch (err) {
+    logger.error('keystore', 'Failed to persist config.json', err)
+    throw err
+  }
 }
 
 // ── AWS Bedrock (SSO / IAM role via default credential chain) ────────────────
@@ -51,10 +80,10 @@ export function getAwsRegion(): string {
   return readConfig().awsRegion || DEFAULT_BEDROCK_REGION
 }
 
-export function saveAwsRegion(region: string): void {
+export async function saveAwsRegion(region: string): Promise<void> {
   const config = readConfig()
   config.awsRegion = region
-  writeConfig(config)
+  await persistConfig(config)
 }
 
 export function getAwsProfile(): string {
@@ -63,10 +92,10 @@ export function getAwsProfile(): string {
   return process.env.AWS_PROFILE?.trim() || ''
 }
 
-export function saveAwsProfile(profile: string): void {
+export async function saveAwsProfile(profile: string): Promise<void> {
   const config = readConfig()
   config.awsProfile = profile
-  writeConfig(config)
+  await persistConfig(config)
 }
 
 // ── Parser proxy (VPS backend) ───────────────────────────────────────────────
@@ -77,24 +106,24 @@ export function getParserProxyUrl(): string {
   return process.env.PARSER_PROXY_URL?.trim() || DEFAULT_PARSER_PROXY_URL
 }
 
-export function saveParserProxyUrl(url: string): void {
+export async function saveParserProxyUrl(url: string): Promise<void> {
   const config = readConfig()
   config.parserProxyUrl = url.trim()
-  writeConfig(config)
+  await persistConfig(config)
 }
 
 export async function storeParserApiKey(apiKey: string): Promise<void> {
   await keytar.setPassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT_PARSER_API, apiKey)
   const config = readConfig()
   config.parserApiKeySavedAt = new Date().toISOString()
-  writeConfig(config)
+  await persistConfig(config)
 }
 
 export async function removeParserApiKey(): Promise<void> {
   await keytar.deletePassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT_PARSER_API)
   const config = readConfig()
   delete config.parserApiKeySavedAt
-  writeConfig(config)
+  await persistConfig(config)
 }
 
 export async function resolveParserApiKey(): Promise<string | null> {
@@ -149,14 +178,14 @@ export async function storeMotherduckToken(token: string): Promise<void> {
   await keytar.setPassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT_MOTHERDUCK, token)
   const config = readConfig()
   config.motherduckTokenSavedAt = new Date().toISOString()
-  writeConfig(config)
+  await persistConfig(config)
 }
 
 export async function removeMotherduckToken(): Promise<void> {
   await keytar.deletePassword(KEYTAR_SERVICE, KEYTAR_ACCOUNT_MOTHERDUCK)
   const config = readConfig()
   delete config.motherduckTokenSavedAt
-  writeConfig(config)
+  await persistConfig(config)
 }
 
 export async function resolveMotherduckToken(): Promise<string | null> {

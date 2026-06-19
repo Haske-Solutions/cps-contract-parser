@@ -1,7 +1,7 @@
 import { ipcMain, dialog } from 'electron'
 import * as fs from 'fs'
 import type { IpcMainInvokeEvent } from 'electron'
-import type { FileFilter, ParseSession } from '../../shared/types'
+import type { ParseSession } from '../../shared/types'
 import {
   getAwsRegion,
   saveAwsRegion,
@@ -33,7 +33,6 @@ import {
 import { resetMotherduckConnection } from '../services/motherduckClient'
 import { buildRows, generateExcel, buildWorkbookFromEditedRows } from '../services/exportService'
 import { generateBatchZip, zipBufferEntries } from '../services/batchExportService'
-import type { BatchSessionContext } from '../../shared/types'
 import {
   listSessions,
   getSession,
@@ -41,23 +40,54 @@ import {
   clearAllSessions,
   saveSession,
 } from '../services/historyService'
+import { logger } from '../services/logger'
+import { IpcValidationError } from './validate'
+import {
+  assertArray,
+  assertBatchSessionContext,
+  assertConfirmedPolicies,
+  assertExtractRatesOptions,
+  assertExtractionMappingTargets,
+  assertFileFilters,
+  assertNumber,
+  assertOptionalString,
+  assertParseSession,
+  assertString,
+  assertSupplierArray,
+  assertZipEntries,
+  toArrayBuffer,
+  toUint8Array,
+} from './validate'
 
 type Handler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown
 
 function handle(channel: string, fn: Handler): void {
-  ipcMain.handle(channel, fn)
+  ipcMain.handle(channel, async (event, ...args) => {
+    try {
+      return await fn(event, ...args)
+    } catch (err) {
+      if (err instanceof IpcValidationError) {
+        logger.warn('ipc', `${channel}: ${err.message}`)
+        throw err
+      }
+      logger.error('ipc', `${channel} failed`, err)
+      throw err
+    }
+  })
 }
 
 export function registerHandlers(): void {
   // ── file ─────────────────────────────────────────────────────────────────
 
   handle('file:saveExcel', async (_evt, buffer: unknown, defaultName: unknown) => {
+    const bytes = toArrayBuffer(buffer, 'buffer')
+    const name = assertString(defaultName, 'defaultName')
     const result = await dialog.showSaveDialog({
-      defaultPath: defaultName as string,
+      defaultPath: name,
       filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }],
     })
     if (result.canceled || !result.filePath) return null
-    await fs.promises.writeFile(result.filePath, Buffer.from(buffer as ArrayBuffer))
+    await fs.promises.writeFile(result.filePath, Buffer.from(bytes))
     return result.filePath
   })
 
@@ -65,9 +95,9 @@ export function registerHandlers(): void {
 
   handle('parser:extractRates', async (_evt, ratePDF: unknown, contractForm: unknown, options: unknown) => {
     return extractRates(
-      ratePDF as Uint8Array,
-      contractForm as Uint8Array,
-      options as { peCatalog?: import('../../shared/types').Supplier[]; targetPeSupplierId?: number } | undefined,
+      toUint8Array(ratePDF, 'ratePDF'),
+      toUint8Array(contractForm, 'contractForm'),
+      assertExtractRatesOptions(options),
     )
   })
 
@@ -75,80 +105,99 @@ export function registerHandlers(): void {
     'parser:discoverSuppliers',
     async (_evt, ratePDF: unknown, contractForm: unknown, peCatalog: unknown, anchorTerm: unknown) => {
       return discoverSuppliers(
-        ratePDF as Uint8Array,
-        contractForm as Uint8Array,
-        peCatalog as import('../../shared/types').Supplier[],
-        anchorTerm as string,
+        toUint8Array(ratePDF, 'ratePDF'),
+        toUint8Array(contractForm, 'contractForm'),
+        assertSupplierArray(peCatalog, 'peCatalog'),
+        assertString(anchorTerm, 'anchorTerm'),
       )
     },
   )
 
   handle(
     'parser:extractRatesForMappings',
-    async (_evt, ratePDF: unknown, contractForm: unknown, peCatalog: unknown, targets: unknown) => {
+    async (evt, ratePDF: unknown, contractForm: unknown, peCatalog: unknown, targets: unknown) => {
+      const sendProgress = (progress: import('../services/parserService').ExtractionProgress) => {
+        if (!evt.sender.isDestroyed()) {
+          evt.sender.send('parser:extractionProgress', progress)
+        }
+      }
+      const sendPropertyComplete = (
+        payload: import('../services/parserService').ExtractionPropertyComplete,
+      ) => {
+        if (!evt.sender.isDestroyed()) {
+          evt.sender.send('parser:extractionPropertyComplete', payload)
+        }
+      }
       return extractRatesForMappings(
-        ratePDF as Uint8Array,
-        contractForm as Uint8Array,
-        peCatalog as import('../../shared/types').Supplier[],
-        targets as import('../../shared/types').ExtractionMappingTarget[],
+        toUint8Array(ratePDF, 'ratePDF'),
+        toUint8Array(contractForm, 'contractForm'),
+        assertSupplierArray(peCatalog, 'peCatalog'),
+        assertExtractionMappingTargets(targets, 'targets'),
+        sendProgress,
+        sendPropertyComplete,
       )
     },
   )
 
-  handle(
-    'parser:confirmPolicies',
-    async (_evt, _sessionId: unknown, _policies: unknown) => {
-      // Policies confirmed in the renderer; no main-process validation required.
-    },
-  )
+  handle('parser:confirmPolicies', async (_evt, sessionId: unknown, policies: unknown) => {
+    assertString(sessionId, 'sessionId')
+    assertConfirmedPolicies(policies, 'policies')
+  })
 
   // ── warehouse ─────────────────────────────────────────────────────────────
 
   handle('warehouse:supplierLookup', async (_evt, name: unknown) => {
-    return supplierLookup(name as string)
+    return supplierLookup(assertString(name, 'name'))
   })
 
   handle(
     'warehouse:supplierLookupFromFilenames',
     async (_evt, contractFormFilename: unknown, rateSheetFilename: unknown) => {
       return supplierLookupFromFilenames(
-        contractFormFilename as string,
-        rateSheetFilename as string,
+        assertString(contractFormFilename, 'contractFormFilename'),
+        assertString(rateSheetFilename, 'rateSheetFilename'),
       )
     },
   )
 
   handle('warehouse:accommodationSupplierCatalog', async (_evt, anchorTerm: unknown) => {
-    return accommodationSupplierCatalog(anchorTerm as string)
+    return accommodationSupplierCatalog(assertString(anchorTerm, 'anchorTerm'))
   })
 
   handle('warehouse:accommodationSupplierCatalogForTerms', async (_evt, anchorTerms: unknown) => {
-    return accommodationSupplierCatalogForTerms(anchorTerms as string[])
+    return accommodationSupplierCatalogForTerms(
+      assertArray(anchorTerms, 'anchorTerms', (item, index) =>
+        assertString(item, `anchorTerms[${index}]`),
+      ),
+    )
   })
 
   handle('warehouse:serviceMatch', async (_evt, supplierId: unknown) => {
-    return serviceMatch(supplierId as number)
+    return serviceMatch(assertNumber(supplierId, 'supplierId'))
   })
 
   handle('warehouse:extrasMatch', async (_evt, supplierId: unknown) => {
-    return extrasMatch(supplierId as number)
+    return extrasMatch(assertNumber(supplierId, 'supplierId'))
   })
 
   handle('warehouse:policyServiceMatch', async (_evt, supplierId: unknown) => {
-    return policyServiceMatch(supplierId as number)
+    return policyServiceMatch(assertNumber(supplierId, 'supplierId'))
   })
 
   handle('warehouse:priorRates', async (_evt, supplierId: unknown, servicePattern: unknown) => {
-    return priorRates(supplierId as number, servicePattern as string)
+    return priorRates(
+      assertNumber(supplierId, 'supplierId'),
+      assertString(servicePattern ?? '', 'servicePattern', { allowEmpty: true }),
+    )
   })
 
   // ── export ────────────────────────────────────────────────────────────────
 
-  handle('export:generateExcel', (_evt, session: unknown) => {
-    const s = session as ParseSession
+  handle('export:generateExcel', async (_evt, session: unknown) => {
+    const s = assertParseSession(session, 'session')
     const { rateRows, extrasRows, flags } = buildRows(s)
     const buffer = generateExcel({ ...s, outputRows: rateRows, extrasRows, validationFlags: flags })
-    saveSession({
+    await saveSession({
       ...s,
       step: 6,
       status: 'complete',
@@ -159,41 +208,44 @@ export function registerHandlers(): void {
     return { buffer: new Uint8Array(buffer), rateRows, extrasRows, flags }
   })
 
-  handle(
-    'export:buildWorkbook',
-    (_evt, rateRows: unknown, extrasRows: unknown, flags: unknown) => {
-      const buffer = buildWorkbookFromEditedRows(
-        rateRows as ParseSession['outputRows'],
-        extrasRows as ParseSession['extrasRows'],
-        flags as ParseSession['validationFlags'],
-      )
-      return { buffer: new Uint8Array(buffer) }
-    },
-  )
+  handle('export:buildWorkbook', (_evt, rateRows: unknown, extrasRows: unknown, flags: unknown) => {
+    if (!Array.isArray(rateRows)) throw new IpcValidationError('rateRows must be an array.')
+    if (!Array.isArray(extrasRows)) throw new IpcValidationError('extrasRows must be an array.')
+    if (!Array.isArray(flags)) throw new IpcValidationError('flags must be an array.')
+
+    const buffer = buildWorkbookFromEditedRows(
+      rateRows as ParseSession['outputRows'],
+      extrasRows as ParseSession['extrasRows'],
+      flags as ParseSession['validationFlags'],
+    )
+    return { buffer: new Uint8Array(buffer) }
+  })
 
   handle(
     'export:generateBatchZip',
     async (_evt, context: unknown, _ratePDF: unknown, _contractForm: unknown, sessionId: unknown) => {
-      const result = await generateBatchZip(context as BatchSessionContext, (sessionId as string) ?? 'batch')
+      const result = await generateBatchZip(
+        assertBatchSessionContext(context, 'context'),
+        assertOptionalString(sessionId, 'sessionId') ?? 'batch',
+      )
       return { zipBuffer: result.zipBuffer, summaries: result.summaries }
     },
   )
 
   handle('export:saveZip', async (_evt, buffer: unknown, defaultName: unknown) => {
+    const bytes = toArrayBuffer(buffer, 'buffer')
+    const name = assertString(defaultName, 'defaultName')
     const result = await dialog.showSaveDialog({
-      defaultPath: defaultName as string,
+      defaultPath: name,
       filters: [{ name: 'ZIP Archive', extensions: ['zip'] }],
     })
     if (result.canceled || !result.filePath) return null
-    await fs.promises.writeFile(result.filePath, Buffer.from(buffer as ArrayBuffer))
+    await fs.promises.writeFile(result.filePath, Buffer.from(bytes))
     return result.filePath
   })
 
   handle('export:zipBuffers', async (_evt, entries: unknown) => {
-    const zipBuffer = await zipBufferEntries(
-      entries as Array<{ filename: string; buffer: Uint8Array }>,
-    )
-    return zipBuffer
+    return zipBufferEntries(assertZipEntries(entries, 'entries'))
   })
 
   // ── settings ──────────────────────────────────────────────────────────────
@@ -202,16 +254,16 @@ export function registerHandlers(): void {
     return getAwsRegion()
   })
 
-  handle('settings:setAwsRegion', (_evt, region: unknown) => {
-    saveAwsRegion(region as string)
+  handle('settings:setAwsRegion', async (_evt, region: unknown) => {
+    await saveAwsRegion(assertString(region, 'region', { allowEmpty: true }))
   })
 
   handle('settings:getAwsProfile', (_evt) => {
     return getAwsProfile()
   })
 
-  handle('settings:setAwsProfile', (_evt, profile: unknown) => {
-    saveAwsProfile(profile as string)
+  handle('settings:setAwsProfile', async (_evt, profile: unknown) => {
+    await saveAwsProfile(assertString(profile, 'profile', { allowEmpty: true }))
   })
 
   handle('settings:getMotherduckCredentials', async (_evt) => {
@@ -223,7 +275,7 @@ export function registerHandlers(): void {
   })
 
   handle('settings:setMotherduckToken', async (_evt, token: unknown) => {
-    await storeMotherduckToken(token as string)
+    await storeMotherduckToken(assertString(token, 'token'))
     resetMotherduckConnection()
   })
 
@@ -240,8 +292,8 @@ export function registerHandlers(): void {
     return getParserProxyUrl()
   })
 
-  handle('settings:setParserProxyUrl', (_evt, url: unknown) => {
-    saveParserProxyUrl(url as string)
+  handle('settings:setParserProxyUrl', async (_evt, url: unknown) => {
+    await saveParserProxyUrl(assertString(url, 'url', { allowEmpty: true }))
   })
 
   handle('settings:getParserApiKeyPreview', async (_evt) => {
@@ -249,7 +301,7 @@ export function registerHandlers(): void {
   })
 
   handle('settings:setParserApiKey', async (_evt, apiKey: unknown) => {
-    await storeParserApiKey(apiKey as string)
+    await storeParserApiKey(assertString(apiKey, 'apiKey'))
   })
 
   handle('settings:deleteParserApiKey', async (_evt) => {
@@ -265,7 +317,7 @@ export function registerHandlers(): void {
   handle('dialog:openFile', async (_evt, filters: unknown) => {
     const result = await dialog.showOpenDialog({
       properties: ['openFile'],
-      filters: filters as FileFilter[],
+      filters: assertFileFilters(filters, 'filters'),
     })
     if (result.canceled || result.filePaths.length === 0) return null
     return result.filePaths[0]
@@ -273,7 +325,7 @@ export function registerHandlers(): void {
 
   handle('dialog:saveFile', async (_evt, defaultName: unknown) => {
     const result = await dialog.showSaveDialog({
-      defaultPath: defaultName as string,
+      defaultPath: assertString(defaultName, 'defaultName'),
       filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }],
     })
     if (result.canceled || !result.filePath) return null
@@ -282,23 +334,26 @@ export function registerHandlers(): void {
 
   // ── history ───────────────────────────────────────────────────────────────
 
-  handle('history:list', (_evt) => {
+  handle('history:list', async (_evt) => {
     return listSessions()
   })
 
-  handle('history:getSession', (_evt, id: unknown) => {
-    return getSession(id as string)
+  handle('history:getSession', async (_evt, id: unknown) => {
+    return getSession(assertString(id, 'id'))
   })
 
-  handle('history:deleteSession', (_evt, id: unknown) => {
-    deleteSession(id as string)
+  handle('history:deleteSession', async (_evt, id: unknown) => {
+    await deleteSession(assertString(id, 'id'))
   })
 
-  handle('history:clearAll', (_evt) => {
-    clearAllSessions()
+  handle('history:clearAll', async (_evt) => {
+    await clearAllSessions()
+  })
+
+  handle('renderer:reportError', (_evt, detail: unknown) => {
+    logger.error('renderer', typeof detail === 'string' ? detail : 'Renderer error (no detail)')
   })
 
   // Health-check (kept for diagnostics)
   ipcMain.handle('__health_check', () => 'ok')
 }
-

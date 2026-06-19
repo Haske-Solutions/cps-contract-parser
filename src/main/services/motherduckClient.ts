@@ -75,6 +75,19 @@ export async function runQuery<T>(sql: string): Promise<T[]> {
   return reader.getRowObjectsJS() as T[]
 }
 
+export async function runQueryBound<T>(
+  sql: string,
+  params: string[],
+): Promise<T[]> {
+  const conn = await getConnection()
+  const stmt = await withTimeout(conn.prepare(sql), QUERY_TIMEOUT_MS)
+  for (let i = 0; i < params.length; i++) {
+    stmt.bindVarchar(i + 1, params[i])
+  }
+  const reader = await withTimeout(stmt.runAndReadAll(), QUERY_TIMEOUT_MS)
+  return reader.getRowObjectsJS() as T[]
+}
+
 export async function testMotherduckConnection(): Promise<{ ok: boolean; message: string }> {
   try {
     const rows = await runQuery<{ ok: number }>('SELECT 1 AS ok')

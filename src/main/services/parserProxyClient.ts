@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import type {
   ExtractionBatchResult,
   Supplier,
@@ -8,9 +9,21 @@ import {
   type ExtractRatesOptions,
 } from '../../shared/parserInvoke'
 import {
+  PARSER_RETRY_BASE_DELAY_MS,
+  PARSER_RETRY_MAX_ATTEMPTS,
+  PARSER_RETRY_MAX_DELAY_MS,
+} from '../../shared/constants'
+import {
+  isRetryableHttpStatus,
+  isRetryableParserError,
+  isTransientNetworkError,
+  withRetry,
+} from '../../shared/retry'
+import {
   getParserProxyUrl,
   resolveParserApiKey,
 } from './keystoreService'
+import { logger } from './logger'
 
 const PROXY_TIMEOUT_MS = 10 * 60 * 1000
 
@@ -64,7 +77,7 @@ function proxyHeaders(apiKey: string): Record<string, string> {
   }
 }
 
-async function proxyFetch(
+async function proxyFetchOnce(
   config: ParserProxyConfig,
   path: string,
   init?: RequestInit,
@@ -81,6 +94,36 @@ async function proxyFetch(
   } finally {
     clearTimeout(timeout)
   }
+}
+
+async function proxyFetch(
+  config: ParserProxyConfig,
+  path: string,
+  init?: RequestInit,
+): Promise<Response> {
+  return withRetry(
+    async () => {
+      const response = await proxyFetchOnce(config, path, init)
+      if (response.ok || !isRetryableHttpStatus(response.status)) {
+        return response
+      }
+      const body = await response.text()
+      throw new Error(`Parser API temporary failure (${response.status}): ${body.slice(0, 120)}`)
+    },
+    {
+      maxAttempts: PARSER_RETRY_MAX_ATTEMPTS,
+      baseDelayMs: PARSER_RETRY_BASE_DELAY_MS,
+      maxDelayMs: PARSER_RETRY_MAX_DELAY_MS,
+      shouldRetry: (error) => isRetryableParserError(error) || isTransientNetworkError(error),
+      onRetry: (error, attempt, delayMs) => {
+        logger.warn(
+          'parserProxy',
+          `Request retry ${attempt}/${PARSER_RETRY_MAX_ATTEMPTS} in ${delayMs}ms`,
+          error,
+        )
+      },
+    },
+  )
 }
 
 function mapProxyHttpError(status: number, bodyText: string): Error {
@@ -134,8 +177,11 @@ export async function discoverViaProxy(
     throw new Error('Parser proxy is not configured.')
   }
 
+  const requestId = randomUUID()
+  logger.info('parserProxy', `discover request ${requestId}`)
   const response = await proxyFetch(config, '/v1/discover', {
     method: 'POST',
+    headers: { 'X-Request-ID': requestId },
     body: JSON.stringify({
       ratePDF: uint8ArrayToBase64(ratePDF),
       contractForm: uint8ArrayToBase64(contractForm),
@@ -157,8 +203,11 @@ export async function extractViaProxy(
     throw new Error('Parser proxy is not configured.')
   }
 
+  const requestId = randomUUID()
+  logger.info('parserProxy', `extract request ${requestId}`)
   const response = await proxyFetch(config, '/v1/extract', {
     method: 'POST',
+    headers: { 'X-Request-ID': requestId },
     body: JSON.stringify({
       ratePDF: uint8ArrayToBase64(ratePDF),
       contractForm: uint8ArrayToBase64(contractForm),

@@ -96,6 +96,23 @@ export interface ExtractionMappingTarget {
   propertyLabel?: string
 }
 
+export type ExtractionProgressStatus = 'extracting' | 'cached'
+
+export interface ExtractionProgress {
+  current: number
+  total: number
+  peSupplierId: number
+  supplierName: string
+  status: ExtractionProgressStatus
+}
+
+export interface ExtractionPropertyComplete {
+  peSupplierId: number
+  extraction: ExtractionResult
+  completed: number
+  total: number
+}
+
 export interface BatchSessionContext {
   anchorTerm: string
   mappings: SupplierMapping[]
@@ -343,6 +360,10 @@ export interface ElectronAPI {
       peCatalog: Supplier[],
       targets: ExtractionMappingTarget[],
     ) => Promise<Record<number, ExtractionResult>>
+    onExtractionProgress: (callback: (progress: ExtractionProgress) => void) => () => void
+    onExtractionPropertyComplete: (
+      callback: (payload: ExtractionPropertyComplete) => void,
+    ) => () => void
     confirmPolicies: (sessionId: string, policies: ConfirmedPolicy[]) => Promise<void>
   }
   warehouse: {
@@ -402,6 +423,9 @@ export interface ElectronAPI {
     getSession: (id: string) => Promise<ParseSession | null>
     deleteSession: (id: string) => Promise<void>
     clearAll: () => Promise<void>
+  }
+  renderer: {
+    reportError: (detail: string) => Promise<void>
   }
 }
 

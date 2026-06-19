@@ -10,7 +10,7 @@
  * integration environments.
  *
  * Parser API integration prerequisites:
- *   PARSER_PROXY_URL=https://your-parser-host
+ *   PARSER_PROXY_URL=https://api-cp.safarico.online
  *   PARSER_API_KEY=shared-secret
  */
 

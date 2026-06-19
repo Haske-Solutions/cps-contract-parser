@@ -1,6 +1,6 @@
 import { supplierSearchTermsFromFilenames } from '../../shared/supplierSearch'
 import type { Supplier, ServiceMatch, PEService, PriorRate } from '../../shared/types'
-import { runQuery, testMotherduckConnection } from './motherduckClient'
+import { runQuery, runQueryBound, testMotherduckConnection } from './motherduckClient'
 
 const ACCOMMODATION_TYPE_NAMES = [
   'Double',
@@ -31,6 +31,19 @@ function sqlInList(values: readonly string[]): string {
   return values.map((v) => `'${escapeSql(v)}'`).join(', ')
 }
 
+function mapSupplierRow(row: Record<string, unknown>): Supplier {
+  return {
+    supplier_id: Number(row.supplier_id),
+    name: String(row.name ?? ''),
+    code: row.code == null ? '' : String(row.code),
+    destination_country: row.destination_country == null ? '' : String(row.destination_country),
+  }
+}
+
+function mapSupplierRows(rows: Record<string, unknown>[]): Supplier[] {
+  return rows.map(mapSupplierRow)
+}
+
 function mapServiceRows(rows: PEService[]): ServiceMatch[] {
   return rows.map((row) => ({
     extractedName: row.name,
@@ -55,9 +68,11 @@ async function querySupplierServices(
 export async function supplierLookup(name: string): Promise<Supplier[]> {
   const term = name.trim()
   if (!term) return []
-
-  const sql = `SELECT supplier_id, name, code, destination_country FROM dim_suppliers WHERE name ILIKE '%${escapeSql(term)}%' ORDER BY name LIMIT 20`
-  return runQuery<Supplier>(sql)
+  const rows = await runQueryBound<Record<string, unknown>>(
+    'SELECT supplier_id, name, code, destination_country FROM dim_suppliers WHERE name ILIKE $1 ORDER BY name LIMIT 20',
+    [`%${term}%`],
+  )
+  return mapSupplierRows(rows)
 }
 
 export async function supplierLookupFromFilenames(
@@ -86,18 +101,18 @@ export async function supplierLookupFromFilenames(
 export async function accommodationSupplierCatalog(anchorTerm: string): Promise<Supplier[]> {
   const term = anchorTerm.trim()
   if (!term) return []
-
-  const sql = `
-    SELECT DISTINCT s.supplier_id, s.name, s.code, s.destination_country
-    FROM dim_suppliers s
-    INNER JOIN supplier_services ss ON ss.supplier_id = s.supplier_id
-    WHERE ss.not_in_use = false
-      AND ss.type_name IN (${sqlInList(ACCOMMODATION_TYPE_NAMES)})
-      AND (s.name ILIKE '%${escapeSql(term)}%' OR s.code ILIKE '%${escapeSql(term)}%')
-    ORDER BY s.name
-    LIMIT 200
-  `
-  return runQuery<Supplier>(sql)
+  const rows = await runQueryBound<Record<string, unknown>>(
+    `SELECT DISTINCT s.supplier_id, s.name, s.code, s.destination_country
+     FROM dim_suppliers s
+     INNER JOIN supplier_services ss ON ss.supplier_id = s.supplier_id
+     WHERE ss.not_in_use = false
+       AND ss.type_name IN (${sqlInList(ACCOMMODATION_TYPE_NAMES)})
+       AND (s.name ILIKE $1 OR s.code ILIKE $1)
+     ORDER BY s.name
+     LIMIT 200`,
+    [`%${term}%`],
+  )
+  return mapSupplierRows(rows)
 }
 
 /** Union accommodation catalog results across multiple anchor terms (deduped by supplier_id). */
@@ -147,15 +162,17 @@ export async function priorRates(
   servicePattern: string,
 ): Promise<PriorRate[]> {
   const id = Math.trunc(supplierId)
-  const patternClause = servicePattern.trim()
-    ? `AND service_name ILIKE '%${escapeSql(servicePattern)}%'`
-    : ''
-  const sql = `SELECT service_name AS "serviceName", adult_cost AS "adultCost", child_cost AS "childCost", rate_type AS "rateType", currency_cost AS currency, log_timestamp AS "logTimestamp" FROM fact_pricing_history WHERE supplier_id = ${id} ${patternClause} ORDER BY log_timestamp DESC LIMIT 50`
-  const rows = await runQuery<Omit<PriorRate, 'percentChange'>>(sql)
-  return rows.map((row) => ({
-    ...row,
-    percentChange: null,
-  }))
+  const pat = servicePattern.trim()
+  const base = `SELECT service_name AS "serviceName", adult_cost AS "adultCost", child_cost AS "childCost", rate_type AS "rateType", currency_cost AS currency, log_timestamp AS "logTimestamp" FROM fact_pricing_history WHERE supplier_id = ${id}`
+  const rows = pat
+    ? await runQueryBound<Omit<PriorRate, 'percentChange'>>(
+        `${base} AND service_name ILIKE $1 ORDER BY log_timestamp DESC LIMIT 50`,
+        [`%${pat}%`],
+      )
+    : await runQuery<Omit<PriorRate, 'percentChange'>>(
+        `${base} ORDER BY log_timestamp DESC LIMIT 50`,
+      )
+  return rows.map((row) => ({ ...row, percentChange: null }))
 }
 
 export { testMotherduckConnection as testConnection }

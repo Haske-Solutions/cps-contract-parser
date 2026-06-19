@@ -3,12 +3,19 @@ import {
   InvokeModelCommand,
 } from '@aws-sdk/client-bedrock-runtime'
 import { defaultProvider } from '@aws-sdk/credential-provider-node'
-import { BEDROCK_MODEL_ID, DEFAULT_BEDROCK_REGION } from '../../src/shared/constants'
+import {
+  BEDROCK_MODEL_ID,
+  DEFAULT_BEDROCK_REGION,
+  PARSER_RETRY_BASE_DELAY_MS,
+  PARSER_RETRY_MAX_ATTEMPTS,
+  PARSER_RETRY_MAX_DELAY_MS,
+} from '../../src/shared/constants'
 import {
   assertPdfPair,
   parseClaudeResponseText,
   pdfDocumentBlocks,
 } from '../../src/shared/parserInvoke'
+import { isBedrockThrottleError, isTransientNetworkError, withRetry } from '../../src/shared/retry'
 
 type ClaudeContentBlock = { type: string; text?: string }
 type ClaudeResponse = { content: ClaudeContentBlock[]; stop_reason: string }
@@ -52,9 +59,23 @@ export async function invokeClaude(
     body: JSON.stringify(requestBody),
   })
 
-  let response
+  let response: { body: Uint8Array }
   try {
-    response = await client.send(command)
+    response = await withRetry(
+      async () => client.send(command),
+      {
+        maxAttempts: PARSER_RETRY_MAX_ATTEMPTS,
+        baseDelayMs: PARSER_RETRY_BASE_DELAY_MS,
+        maxDelayMs: PARSER_RETRY_MAX_DELAY_MS,
+        shouldRetry: (error) => {
+          if (!(error instanceof Error)) return false
+          if (/access\s*denied|accessdenied|unauthorized|credentials|expired/i.test(error.message)) {
+            return false
+          }
+          return isBedrockThrottleError(error) || isTransientNetworkError(error)
+        },
+      },
+    )
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
     if (/access\s*denied|accessdenied|unauthorized|credentials|expired/i.test(msg)) {

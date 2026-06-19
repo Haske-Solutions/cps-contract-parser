@@ -20,10 +20,23 @@ files:
   - "!node_modules/.cache/**"
   - "!.env*"
 
+extraResources:
+  - from: resources/icon.png
+    to: icon.png
+
+# macOS signing + notarization (release builds only — skipped when env vars are absent)
+# Required env:
+#   CSC_LINK or CSC_NAME          Developer ID Application certificate
+#   CSC_KEY_PASSWORD              Certificate password (if using CSC_LINK)
+#   APPLE_ID                      Apple ID email
+#   APPLE_APP_SPECIFIC_PASSWORD   App-specific password
+#   APPLE_TEAM_ID                 10-character Team ID
+afterSign: scripts/notarize.js
+
 mac:
   category: public.app-category.business
   hardenedRuntime: true
-  gatekeeperAssess: false
+  gatekeeperAssess: true
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist
   target:
@@ -33,14 +46,21 @@ mac:
         - arm64
 
 dmg:
+  title: CPS Contract Parser
+  icon: resources/icon.icns
+  iconSize: 128
+  background: resources/dmg-background.png
+  window:
+    width: 658
+    height: 498
   contents:
-    - x: 410
-      y: 150
+    - x: 180
+      y: 240
+      type: file
+    - x: 478
+      y: 240
       type: link
       path: /Applications
-    - x: 130
-      y: 150
-      type: file
 
 win:
   publisherName: "Cheli and Peacock Safaris"
@@ -48,15 +68,24 @@ win:
     - target: nsis
       arch:
         - x64
+  # Explicitly disable Authenticode signing (unsigned .exe). Remove sign: null when WIN_CSC_* secrets are ready.
+  sign: null
+  signingHashAlgorithms: null
 
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
-  license: resources/license.txt
+  license: license.txt
+  installerIcon: icon.ico
+  uninstallerIcon: icon.ico
+  installerSidebar: installer-sidebar.bmp
+  installerHeader: installer-header.bmp
   createDesktopShortcut: true
   createStartMenuShortcut: true
   deleteAppDataOnUninstall: false
 
 publish:
   provider: github
+  owner: Haske-Solutions
+  repo: cps-contract-parser
   releaseType: release

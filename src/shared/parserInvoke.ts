@@ -157,13 +157,30 @@ export function buildPeCatalogContext(peCatalog: Supplier[]): string {
   return JSON.stringify(entries, null, 2)
 }
 
+/** For targeted extraction, send only the target PE row (smaller prompt). */
+export function filterPeCatalogForExtraction(
+  peCatalog: Supplier[],
+  options?: Pick<ExtractRatesOptions, 'targetPeSupplierId'>,
+): Supplier[] {
+  if (!options?.targetPeSupplierId || peCatalog.length === 0) {
+    return peCatalog
+  }
+
+  const target = peCatalog.find((s) => s.supplier_id === options.targetPeSupplierId)
+  return target ? [target] : peCatalog
+}
+
 export function buildExtractionUserText(options?: ExtractRatesOptions): string {
   const parts: string[] = []
 
-  if (options?.peCatalog?.length) {
+  const catalog = options?.peCatalog?.length
+    ? filterPeCatalogForExtraction(options.peCatalog, options)
+    : []
+
+  if (catalog.length) {
     parts.push(
       'peAccommodationSuppliers reference list (assign peSupplierId and peSupplierCode from this list when matched):',
-      buildPeCatalogContext(options.peCatalog),
+      buildPeCatalogContext(catalog),
     )
   }
 

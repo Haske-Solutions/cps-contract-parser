@@ -1,15 +1,19 @@
 import { BrowserWindow } from 'electron'
 import * as path from 'path'
+import { resolveWindowIcon } from './appIcon'
 
 const isDev = process.env.NODE_ENV === 'development'
 
 export function createMainWindow(): BrowserWindow {
+  const icon = resolveWindowIcon()
+
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 1024,
     minHeight: 700,
     title: 'CPS Contract Parser',
+    ...(icon ? { icon } : {}),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

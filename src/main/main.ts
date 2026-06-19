@@ -1,9 +1,12 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, crashReporter } from 'electron'
 import * as fs from 'fs'
 import * as path from 'path'
 import { createMainWindow } from './windows/mainWindow'
 import { registerHandlers } from './ipc/handlers'
 import { closeMotherduck } from './services/motherduckClient'
+import { initKeystoreConfig } from './services/keystoreService'
+import { logger } from './services/logger'
+import { initAutoUpdater } from './services/updaterService'
 
 // Load .env in development so local config is available without shell exports.
 // Only sets variables that are not already in the environment.
@@ -25,17 +28,47 @@ function loadDotEnv(): void {
   }
 }
 
+function initCrashReporter(): void {
+  crashReporter.start({
+    productName: 'CPS Contract Parser',
+    companyName: 'Cheli and Peacock Safaris',
+    submitURL: process.env.CRASH_REPORT_URL?.trim() || '',
+    uploadToServer: Boolean(process.env.CRASH_REPORT_URL?.trim()),
+    compress: true,
+    ignoreSystemCrashHandler: false,
+  })
+}
+
+function registerProcessDiagnostics(): void {
+  process.on('uncaughtException', (err) => {
+    logger.error('process', 'Uncaught exception', err)
+  })
+
+  process.on('unhandledRejection', (reason) => {
+    logger.error('process', 'Unhandled promise rejection', reason)
+  })
+}
+
 if (process.env.NODE_ENV !== 'production') {
   loadDotEnv()
 }
 
-app.whenReady().then(() => {
-  createMainWindow()
+registerProcessDiagnostics()
+initCrashReporter()
+
+app.whenReady().then(async () => {
+  await initKeystoreConfig()
+  logger.info('app', `Starting CPS Contract Parser v${app.getVersion()}`)
+  logger.info('crashReporter', `Crash dumps directory: ${app.getPath('crashDumps')}`)
+  logger.info('logger', `Log file directory: ${logger.getLogDirectory()}`)
+  const mainWindow = createMainWindow()
   registerHandlers()
+  initAutoUpdater(mainWindow)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      createMainWindow()
+      const win = createMainWindow()
+      initAutoUpdater(win)
     }
   })
 })
@@ -46,4 +79,5 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   closeMotherduck()
+  logger.info('app', 'Application shutting down')
 })

@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef } from 'react'
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { toast } from 'sonner'
 import { FileUpload } from '../../components/FileUpload/FileUpload'
 import { StepProgress } from '../../components/StepProgress/StepProgress'
@@ -37,6 +37,8 @@ import type {
   PropertyMappingGroup,
   SupplierWalkthroughContext,
   CompletedSupplierExport,
+  ExtractionProgress,
+  ExtractionPropertyComplete,
 } from '@shared/types'
 import { toArrayBuffer, toExportSession } from '@shared/sessionUtils'
 import { isExtractionSuggestedForSupplier } from '@shared/extractionUtils'
@@ -51,13 +53,37 @@ import { anchorTermFromFilenames, catalogAnchorTermsFromFilenames, deriveSupplie
 import { detectMismatches } from '../../lib/mismatchDetection'
 import { enrichPriorRatesWithNew, computeRateChangeServiceIds } from '../../lib/rateComparison'
 import { LOADING_MESSAGES } from '../../lib/parseFlow'
-import { MAX_PROPERTIES_PER_RUN } from '@shared/constants'
+import { MAX_PROPERTIES_PER_RUN, PARSER_PROXY_TIMEOUT_MS } from '@shared/constants'
 import {
   capIncludedSelections,
   countRemainingReviewable,
   prepareGroupsForNextBatch,
   sortMappingGroupsForDisplay,
 } from '@shared/mappingSelection'
+
+function waitForWalkthroughExtraction(
+  peSupplierId: number,
+  timeoutMs: number,
+): Promise<ExtractionResult> {
+  const existing = useBatchSessionStore.getState().walkthrough?.extractionsByPeId[peSupplierId]
+  if (existing) return Promise.resolve(existing)
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      unsub()
+      reject(new Error('Timed out waiting for rate extraction to finish.'))
+    }, timeoutMs)
+
+    const unsub = useBatchSessionStore.subscribe((state) => {
+      const extraction = state.walkthrough?.extractionsByPeId[peSupplierId]
+      if (extraction) {
+        clearTimeout(timeout)
+        unsub()
+        resolve(extraction)
+      }
+    })
+  })
+}
 
 export function ParseSession() {
   const store = useSessionStore()
@@ -72,6 +98,8 @@ export function ParseSession() {
   const [isGenerating, setIsGenerating] = useState(false)
   const [isBatchGenerating, setIsBatchGenerating] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [extractionProgress, setExtractionProgress] = useState<ExtractionProgress | null>(null)
+  const [batchExtractionInFlight, setBatchExtractionInFlight] = useState(false)
   const [excelBuffer, setExcelBuffer] = useState<ArrayBuffer | null>(null)
   const [showResetDialog, setShowResetDialog] = useState(false)
   const [extractionBatch, setExtractionBatch] = useState<ExtractionBatchResult | null>(null)
@@ -258,15 +286,39 @@ export function ParseSession() {
   const sessionReviewComplete =
     batchStore.reviewedPeIds.length > 0 && remainingReviewable === 0
 
+  const backgroundExtractionsRemaining = useMemo(() => {
+    const walkthrough = batchStore.walkthrough
+    if (!batchExtractionInFlight || !walkthrough) return 0
+    return walkthrough.queue.length - Object.keys(walkthrough.extractionsByPeId).length
+  }, [batchExtractionInFlight, batchStore.walkthrough])
+
+  useEffect(() => {
+    const unsubscribe = window.electronAPI.parser.onExtractionProgress(setExtractionProgress)
+    return unsubscribe
+  }, [])
+
+  useEffect(() => {
+    if (store.status !== 'loading') {
+      setExtractionProgress(null)
+    }
+  }, [store.status])
+
   const loadingMessage = useMemo(() => {
+    if (store.step === 2 && store.status === 'loading' && extractionProgress) {
+      const { current, total, supplierName, status } = extractionProgress
+      if (status === 'cached') {
+        return `Using cached extraction for ${supplierName} (${current} of ${total})…`
+      }
+      return `Extracting rates for ${supplierName} (${current} of ${total})…`
+    }
     if (store.step === 2 && store.status === 'loading') {
       const count = includedMappingsInOrder(batchStore.mappings).length
       if (count > 1) {
-        return `Extracting rates for ${Math.min(count, MAX_PROPERTIES_PER_RUN)} properties…`
+        return `Preparing extraction for ${Math.min(count, MAX_PROPERTIES_PER_RUN)} properties…`
       }
     }
     return LOADING_MESSAGES[store.step]
-  }, [store.step, store.status, batchStore.mappings])
+  }, [store.step, store.status, batchStore.mappings, extractionProgress])
 
   const startSupplierReview = useCallback(
     (walkthrough: SupplierWalkthroughContext, index: number) => {
@@ -311,34 +363,85 @@ export function ParseSession() {
 
       store.setStep(2)
       store.setStatus('loading')
+      setBatchExtractionInFlight(true)
 
+      const anchorTerm = batchStore.anchorTerm
       const targets = queue.map((m) => ({
         peSupplierId: m.peSupplier!.supplier_id,
         propertyLabel: m.detected?.extractedName,
       }))
-      const extractionsByPeId = await window.electronAPI.parser.extractRatesForMappings(
-        store.ratePDF!,
-        store.contractForm!,
-        peCatalog,
-        targets,
+
+      let walkthroughStarted = false
+      let partialWalkthrough: SupplierWalkthroughContext | null = null
+
+      const unsubscribeProperty = window.electronAPI.parser.onExtractionPropertyComplete(
+        ({ peSupplierId, extraction, completed, total }: ExtractionPropertyComplete) => {
+          const baseWalkthrough: SupplierWalkthroughContext = partialWalkthrough ?? {
+            anchorTerm,
+            queue,
+            currentIndex: 0,
+            extractionsByPeId: {},
+            completedExports: [],
+            status: 'in_progress',
+          }
+
+          partialWalkthrough = {
+            ...baseWalkthrough,
+            extractionsByPeId: {
+              ...baseWalkthrough.extractionsByPeId,
+              [peSupplierId]: extraction,
+            },
+          }
+          batchStore.setWalkthrough(partialWalkthrough)
+
+          if (!walkthroughStarted) {
+            walkthroughStarted = true
+            store.setStatus('awaiting_confirmation')
+            startSupplierReview(partialWalkthrough, 0)
+            if (total > 1) {
+              const remaining = total - completed
+              toast.message(`Reviewing ${total} properties (batch ${mappingBatchNumber})`, {
+                description:
+                  remaining > 0
+                    ? `${remaining} more ${remaining === 1 ? 'property' : 'properties'} extracting in the background while you review.`
+                    : 'You will walk through each property in Steps 2–6 before moving to the next.',
+              })
+            }
+          }
+        },
       )
 
-      const walkthrough: SupplierWalkthroughContext = {
-        anchorTerm: batchStore.anchorTerm,
-        queue,
-        currentIndex: 0,
-        extractionsByPeId,
-        completedExports: [],
-        status: 'in_progress',
-      }
+      try {
+        const extractionsByPeId = await window.electronAPI.parser.extractRatesForMappings(
+          store.ratePDF!,
+          store.contractForm!,
+          peCatalog,
+          targets,
+        )
 
-      batchStore.setWalkthrough(walkthrough)
-      startSupplierReview(walkthrough, 0)
+        const finalWalkthrough: SupplierWalkthroughContext = {
+          anchorTerm,
+          queue,
+          currentIndex: partialWalkthrough?.currentIndex ?? 0,
+          extractionsByPeId,
+          completedExports: partialWalkthrough?.completedExports ?? [],
+          status: partialWalkthrough?.status ?? 'in_progress',
+        }
+        batchStore.setWalkthrough(finalWalkthrough)
 
-      if (queue.length > 1) {
-        toast.message(`Reviewing ${queue.length} properties (batch ${mappingBatchNumber})`, {
-          description: 'You will walk through each property in Steps 2–6 before moving to the next.',
-        })
+        if (!walkthroughStarted) {
+          startSupplierReview(finalWalkthrough, 0)
+        }
+      } catch (err) {
+        if (walkthroughStarted) {
+          batchStore.setWalkthrough(null)
+          store.resetSupplierWorkflow()
+          store.setStep(2)
+        }
+        throw err
+      } finally {
+        unsubscribeProperty()
+        setBatchExtractionInFlight(false)
       }
     },
     [store, batchStore, startSupplierReview, mappingBatchNumber],
@@ -650,13 +753,40 @@ export function ParseSession() {
     }
 
     batchStore.setWalkthrough(updatedWalkthrough)
-    startSupplierReview(updatedWalkthrough, nextIndex)
 
     const nextMapping = walkthrough.queue[nextIndex]!
+    const nextPeId = nextMapping.peSupplier?.supplier_id
+    let walkthroughForReview = updatedWalkthrough
+    if (nextPeId && !updatedWalkthrough.extractionsByPeId[nextPeId]) {
+      const priorStep = store.step
+      const priorStatus = store.status
+      store.setStatus('loading')
+      try {
+        await waitForWalkthroughExtraction(nextPeId, PARSER_PROXY_TIMEOUT_MS)
+        const latest = useBatchSessionStore.getState().walkthrough
+        if (latest) {
+          walkthroughForReview = {
+            ...updatedWalkthrough,
+            extractionsByPeId: latest.extractionsByPeId,
+          }
+          batchStore.setWalkthrough(walkthroughForReview)
+        }
+      } catch (err) {
+        const msg =
+          err instanceof Error ? err.message : 'Timed out waiting for the next property extraction.'
+        setErrorMessage(msg)
+        store.setStep(priorStep)
+        store.setStatus(priorStatus)
+        toast.error(msg)
+        return
+      }
+    }
+
+    startSupplierReview(walkthroughForReview, nextIndex)
     toast.message(`Property ${nextIndex + 1} of ${walkthrough.queue.length}`, {
       description: nextMapping.peSupplier?.name,
     })
-  }, [batchStore, recordCurrentExport, regenerateWorkbookBuffer, startSupplierReview, mappingGroups])
+  }, [batchStore, recordCurrentExport, regenerateWorkbookBuffer, startSupplierReview, mappingGroups, store])
 
   const handleReviewMoreProperties = useCallback(() => {
     const prepared = prepareGroupsForNextBatch(mappingGroups)
@@ -904,6 +1034,15 @@ export function ParseSession() {
             <h2 id="step2-heading" className="text-base font-heading font-semibold mb-4">
               Rate Extraction &amp; Policy Review
             </h2>
+            {backgroundExtractionsRemaining > 0 && (
+              <Alert className="mb-4">
+                <AlertDescription>
+                  Extracting {backgroundExtractionsRemaining} more{' '}
+                  {backgroundExtractionsRemaining === 1 ? 'property' : 'properties'} in the
+                  background. You can review this property while extraction continues.
+                </AlertDescription>
+              </Alert>
+            )}
             <PolicyReview extraction={store.extraction} onConfirm={handlePoliciesConfirmed} />
           </section>
         )}

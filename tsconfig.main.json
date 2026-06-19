@@ -23,6 +23,7 @@
     "src/shared/types.ts",
     "src/shared/constants.ts",
     "src/shared/parserInvoke.ts",
+    "src/shared/retry.ts",
     "src/shared/tokenDisplay.ts"
   ],
   "exclude": ["src/renderer"]
