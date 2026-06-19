@@ -1,0 +1,42 @@
+CPS CONTRACT PARSER — END USER LICENSE AGREEMENT
+
+Copyright © 2026 Cheli and Peacock Safaris. All rights reserved.
+
+IMPORTANT: READ THIS LICENSE AGREEMENT CAREFULLY BEFORE INSTALLING OR USING
+THIS SOFTWARE.
+
+By installing or using CPS Contract Parser ("Software"), you agree to be bound
+by the terms of this End User License Agreement ("Agreement"). If you do not
+agree to these terms, do not install or use the Software.
+
+1. GRANT OF LICENSE
+   Cheli and Peacock Safaris grants you a non-exclusive, non-transferable,
+   limited license to install and use the Software solely for your internal
+   business purposes in connection with Cheli and Peacock Safaris operations.
+
+2. RESTRICTIONS
+   You may not:
+   (a) copy, modify, or distribute the Software;
+   (b) reverse engineer, decompile, or disassemble the Software;
+   (c) sublicense, sell, rent, or lease the Software;
+   (d) use the Software for any purpose other than internal business use.
+
+3. OWNERSHIP
+   The Software is licensed, not sold. Cheli and Peacock Safaris retains all
+   intellectual property rights in the Software.
+
+4. NO WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED. CHELI AND PEACOCK SAFARIS DISCLAIMS ALL WARRANTIES, INCLUDING
+   IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+
+5. LIMITATION OF LIABILITY
+   IN NO EVENT SHALL CHELI AND PEACOCK SAFARIS BE LIABLE FOR ANY INDIRECT,
+   INCIDENTAL, SPECIAL, OR CONSEQUENTIAL DAMAGES ARISING OUT OF THE USE OF
+   THE SOFTWARE.
+
+6. TERMINATION
+   This license is effective until terminated. It will terminate automatically
+   if you fail to comply with any term of this Agreement.
+
+For questions regarding this license, contact: info@chelipeacock.com

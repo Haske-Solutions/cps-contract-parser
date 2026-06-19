@@ -1,0 +1,100 @@
+@import 'react-data-grid/lib/styles.css';
+
+.rdg-light {
+  --rdg-color: var(--foreground);
+  --rdg-border-color: var(--border);
+  --rdg-background-color: var(--card);
+  --rdg-header-background-color: var(--muted);
+  --rdg-row-hover-background-color: var(--secondary);
+  --rdg-row-selected-background-color: color-mix(in oklch, var(--primary) 12%, var(--card));
+  --rdg-selection-color: var(--primary);
+  --rdg-font-size: 0.75rem;
+  width: 100%;
+  border: none;
+  border-radius: 0;
+}
+
+/* Opaque sticky header — theme tokens are oklch, not hsl() components */
+.rdg-light .rdg-header-row .rdg-cell,
+.rdg-light .rdg-header-row .rdg-cell-frozen,
+.rdg-light [role='columnheader'] {
+  background-color: var(--muted) !important;
+  color: var(--muted-foreground);
+  font-weight: 500;
+  z-index: 2;
+}
+
+.rdg-light .rdg-row .rdg-cell-frozen {
+  background-color: var(--card);
+  z-index: 1;
+}
+
+.rdg-light .rdg-row .rdg-cell {
+  background-color: var(--card);
+  border-inline-end: 1px solid var(--border);
+  border-block-end: 1px solid var(--border);
+  padding-inline: 6px;
+}
+
+.rdg-light .rdg-row:hover .rdg-cell {
+  background-color: var(--secondary);
+}
+
+.rdg-light .rdg-row.rdg-row-selected .rdg-cell,
+.rdg-light .rdg-row.rdg-row-selected .rdg-cell-frozen {
+  background-color: color-mix(in oklch, var(--primary) 14%, var(--card));
+}
+
+.rdg-light .rdg-row.rdg-row-selected:hover .rdg-cell,
+.rdg-light .rdg-row.rdg-row-selected:hover .rdg-cell-frozen {
+  background-color: color-mix(in oklch, var(--primary) 22%, var(--card));
+}
+
+.rdg-light .rdg-row.rdg-row-selected.bg-needs_creation .rdg-cell,
+.rdg-light .rdg-row.rdg-row-selected.bg-needs_creation .rdg-cell-frozen {
+  background-color: color-mix(in oklch, var(--primary) 28%, var(--needs-creation));
+}
+
+.rdg-light .rdg-row.rdg-row-selected.bg-rate_change .rdg-cell,
+.rdg-light .rdg-row.rdg-row-selected.bg-rate_change .rdg-cell-frozen {
+  background-color: color-mix(in oklch, var(--primary) 28%, var(--rate-change));
+}
+
+.rdg-light .rdg-row.bg-needs_creation .rdg-cell {
+  background-color: var(--needs-creation);
+}
+
+.rdg-light .rdg-row.bg-rate_change .rdg-cell {
+  background-color: var(--rate-change);
+}
+
+.rdg-light .rdg-text-editor {
+  appearance: none;
+  box-sizing: border-box;
+  inline-size: 100%;
+  block-size: 100%;
+  padding-inline: 6px;
+  border: 1px solid var(--primary);
+  outline: none;
+  box-shadow: none;
+  background-color: var(--card);
+  color: var(--foreground);
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.rdg-light .rdg-text-editor:focus {
+  border-color: var(--primary);
+  outline: none;
+  box-shadow: none;
+}
+
+/* Single focus indicator: editor border only, no cell padding rings */
+.rdg-light .rdg-cell[aria-selected='true'] {
+  outline: none !important;
+}
+
+.rdg-light .rdg-row .rdg-cell.rdg-editor-container {
+  padding: 0 !important;
+  outline: none !important;
+}

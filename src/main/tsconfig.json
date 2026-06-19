@@ -1,0 +1,4 @@
+{
+  "extends": "../../tsconfig.main.json",
+  "include": ["./**/*", "../shared/types.ts", "../shared/constants.ts", "../shared/parserInvoke.ts", "../shared/tokenDisplay.ts"]
+}

@@ -1,0 +1,153 @@
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+    --font-heading: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+
+    /* CPS Gray surfaces */
+    --background: oklch(0.985 0.002 95);
+    --foreground: oklch(0.22 0.01 95);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.22 0.01 95);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.22 0.01 95);
+
+    /* CPS Red — primary actions */
+    --primary: oklch(0.42 0.16 25);
+    --primary-foreground: oklch(0.99 0 0);
+
+    /* CPS Gray — secondary/muted */
+    --secondary: oklch(0.94 0.005 95);
+    --secondary-foreground: oklch(0.28 0.01 95);
+    --muted: oklch(0.94 0.005 95);
+    --muted-foreground: oklch(0.5 0.01 95);
+
+    /* CPS Gold — accents */
+    --accent: oklch(0.92 0.06 85);
+    --accent-foreground: oklch(0.32 0.08 75);
+
+    --destructive: oklch(0.5 0.2 25);
+    --border: oklch(0.88 0.005 95);
+    --input: oklch(0.88 0.005 95);
+    --ring: oklch(0.55 0.02 95);
+
+    --chart-1: oklch(0.42 0.16 25);
+    --chart-2: oklch(0.72 0.1 75);
+    --chart-3: oklch(0.55 0.01 95);
+    --chart-4: oklch(0.35 0.01 95);
+    --chart-5: oklch(0.75 0.05 85);
+    --radius: 0.5rem;
+
+    /* Semantic row highlights */
+    --needs-creation: oklch(0.96 0.06 95);
+    --rate-change: oklch(0.95 0.05 65);
+    --stop-row: oklch(0.96 0.04 25);
+
+    /* Sidebar — CPS Gray with Red accent */
+    --sidebar: oklch(0.97 0.004 95);
+    --sidebar-foreground: oklch(0.25 0.01 95);
+    --sidebar-primary: oklch(0.42 0.16 25);
+    --sidebar-primary-foreground: oklch(0.99 0 0);
+    --sidebar-accent: oklch(0.92 0.06 85);
+    --sidebar-accent-foreground: oklch(0.32 0.08 75);
+    --sidebar-border: oklch(0.88 0.005 95);
+    --sidebar-ring: oklch(0.72 0.1 75);
+  }
+
+  .dark {
+    --background: oklch(0.18 0.01 95);
+    --foreground: oklch(0.96 0 0);
+    --card: oklch(0.22 0.01 95);
+    --card-foreground: oklch(0.96 0 0);
+    --popover: oklch(0.22 0.01 95);
+    --popover-foreground: oklch(0.96 0 0);
+    --primary: oklch(0.55 0.18 25);
+    --primary-foreground: oklch(0.99 0 0);
+    --secondary: oklch(0.28 0.01 95);
+    --secondary-foreground: oklch(0.96 0 0);
+    --muted: oklch(0.28 0.01 95);
+    --muted-foreground: oklch(0.65 0.01 95);
+    --accent: oklch(0.35 0.06 75);
+    --accent-foreground: oklch(0.92 0.06 85);
+    --destructive: oklch(0.6 0.2 25);
+    --border: oklch(1 0 0 / 12%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.65 0.02 95);
+    --needs-creation: oklch(0.3 0.05 95);
+    --rate-change: oklch(0.3 0.05 65);
+    --stop-row: oklch(0.3 0.05 25);
+    --sidebar: oklch(0.2 0.01 95);
+    --sidebar-foreground: oklch(0.96 0 0);
+    --sidebar-primary: oklch(0.55 0.18 25);
+    --sidebar-primary-foreground: oklch(0.99 0 0);
+    --sidebar-accent: oklch(0.35 0.06 75);
+    --sidebar-accent-foreground: oklch(0.92 0.06 85);
+    --sidebar-border: oklch(1 0 0 / 12%);
+    --sidebar-ring: oklch(0.72 0.1 75);
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply font-sans antialiased;
+  }
+
+  body {
+    @apply bg-background text-foreground m-0;
+  }
+
+  /* Skip-link target: no visible focus ring on click */
+  #main-content {
+    outline: none;
+  }
+
+  #main-content:focus {
+    outline: none;
+  }
+}
+
+@layer components {
+  /* Sidebar gap width — Tailwind arbitrary w-(--sidebar-width) may not emit in all builds */
+  [data-slot="sidebar-gap"] {
+    width: var(--sidebar-width, 16rem);
+    flex-shrink: 0;
+  }
+
+  .group[data-collapsible="icon"] [data-slot="sidebar-gap"] {
+    width: var(--sidebar-width-icon, 3rem);
+  }
+
+  .group[data-collapsible="offcanvas"] [data-slot="sidebar-gap"] {
+    width: 0;
+  }
+
+  [data-slot="sidebar-inset"] {
+    min-width: 0;
+  }
+
+  /* Native selects — inset chevron so it does not sit on the border */
+  .cp-native-select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.625rem center;
+    background-size: 1rem;
+    padding-right: 2.25rem;
+  }
+
+  .cp-disclosure-summary {
+    list-style: none;
+  }
+
+  .cp-disclosure-summary::-webkit-details-marker {
+    display: none;
+  }
+}
