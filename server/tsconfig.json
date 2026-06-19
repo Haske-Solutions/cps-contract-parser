@@ -5,12 +5,19 @@
     "module": "CommonJS",
     "moduleResolution": "node",
     "outDir": "dist",
-    "rootDir": "src",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["src/**/*"]
+  "include": [
+    "src/**/*",
+    "../src/shared/constants.ts",
+    "../src/shared/parserInvoke.ts",
+    "../src/shared/types.ts",
+    "../src/main/prompts/**/*",
+    "../src/main/services/discoveryValidation.ts",
+    "../src/main/services/extractionValidation.ts"
+  ]
 }
