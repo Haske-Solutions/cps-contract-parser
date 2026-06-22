@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('../main/services/motherduckClient', () => ({
+  runQuery: vi.fn(),
   runQueryBound: vi.fn(),
+  testMotherduckConnection: vi.fn(),
 }))
 
 import { runQueryBound } from '../main/services/motherduckClient'

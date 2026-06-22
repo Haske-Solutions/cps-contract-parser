@@ -35,10 +35,6 @@ describe('normalizeProxyUrl', () => {
 })
 
 describe('resolveParserProxyConfig', () => {
-  beforeEach(() => {
-    vi.resetModules()
-  })
-
   it('returns null when no proxy URL is configured', async () => {
     vi.doMock('../main/services/keystoreService', () => ({
       getParserProxyUrl: () => '',
@@ -46,5 +42,6 @@ describe('resolveParserProxyConfig', () => {
     }))
     const { resolveParserProxyConfig } = await import('../main/services/parserProxyClient')
     await expect(resolveParserProxyConfig()).resolves.toBeNull()
+    vi.resetModules()
   })
 })
