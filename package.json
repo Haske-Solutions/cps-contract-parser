@@ -16,7 +16,7 @@
     "build:renderer": "vite build",
     "build:main": "tsc -p tsconfig.main.json",
     "package": "npm run build && electron-builder",
-    "package:mac": "npm run build && electron-builder --mac",
+    "package:mac": "npm run build && bash scripts/package-mac-ci.sh",
     "package:win": "npm run build && electron-builder --win",
     "icons:generate": "bash scripts/generate-icons.sh",
     "installer-assets:generate": "node scripts/generate-installer-assets.js",

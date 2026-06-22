@@ -10,6 +10,9 @@ asar: true
 asarUnpack:
   - "**/*.node"
   - "**/@duckdb/**"
+  - "**/keytar/**"
+
+npmRebuild: true
 
 directories:
   output: release/

@@ -30,7 +30,9 @@ npm run branding:generate   # first time or after icon changes
 npm run package:mac -- -p never
 ```
 
-Artifacts: `release/*.dmg`, unpacked app under `release/mac-arm64/` (Apple Silicon).
+Artifacts: `release/*-arm64.dmg` (Apple Silicon) and `release/*.dmg` (Intel x64). Unpacked apps under `release/mac-arm64/` and `release/mac/`.
+
+**Important:** Install the DMG that matches your Mac. An arm64 build on an Intel Mac (or vice versa) fails at launch with errors like `keytar.node: incompatible architecture`.
 
 Signing/notarization runs only when `CSC_*` and `APPLE_*` GitHub secrets are set. Without them, CI builds **unsigned** DMGs (see `scripts/package-mac-ci.sh`). Users may need right-click → Open on first launch.
 
