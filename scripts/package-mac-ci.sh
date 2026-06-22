@@ -3,6 +3,8 @@
 # Builds one or both DMGs with native modules (keytar, duckdb) matching the target CPU.
 set -euo pipefail
 
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ELECTRON_BUILDER="${ROOT}/node_modules/.bin/electron-builder"
 DUCKDB_BINDINGS_VERSION="1.5.3-r.3"
 EB_ARGS=(--publish never)
 
@@ -13,20 +15,25 @@ if [[ -n "${CSC_LINK_RAW:-}" ]]; then
   export APPLE_ID="${APPLE_ID_RAW:-}"
   export APPLE_APP_SPECIFIC_PASSWORD="${APPLE_APP_SPECIFIC_PASSWORD_RAW:-}"
   export APPLE_TEAM_ID="${APPLE_TEAM_ID_RAW:-}"
+  CONFIG_ARGS=()
 else
   echo "→ No CSC_LINK secret; building unsigned macOS apps"
   echo "  (Users may need right-click → Open on first launch.)"
   export CSC_IDENTITY_AUTO_DISCOVERY=false
-  EB_ARGS+=(
-    --config.mac.hardenedRuntime=false
-    --config.mac.gatekeeperAssess=false
-  )
+  CONFIG_ARGS=(-c "${ROOT}/electron-builder.unsigned.yml")
 fi
+
+if [[ ! -x "$ELECTRON_BUILDER" ]]; then
+  echo "electron-builder not found at ${ELECTRON_BUILDER}. Run npm ci first." >&2
+  exit 1
+fi
+
+echo "→ Using $("$ELECTRON_BUILDER" --version)"
 
 ensure_duckdb_binding() {
   local arch="$1"
   local pkg="@duckdb/node-bindings-darwin-${arch}"
-  if [[ -f "node_modules/${pkg}/duckdb.node" ]]; then
+  if [[ -f "${ROOT}/node_modules/${pkg}/duckdb.node" ]]; then
     return
   fi
   echo "→ Installing ${pkg} for ${arch} packaging"
@@ -38,7 +45,7 @@ rebuild_keytar_for_arch() {
   local electron_version
   electron_version="$(node -p "require('electron/package.json').version")"
   echo "→ Rebuilding keytar for darwin-${arch} (Electron ${electron_version})"
-  rm -rf node_modules/keytar/build
+  rm -rf "${ROOT}/node_modules/keytar/build"
   npx @electron/rebuild --force --only keytar \
     --arch "$arch" \
     --platform darwin \
@@ -46,11 +53,26 @@ rebuild_keytar_for_arch() {
 }
 
 build_dmg() {
-  local arch="$1"
+  local arch="${1//[[:space:]]/}"
+  local -a arch_flag=()
+
+  case "$arch" in
+    arm64) arch_flag=(--arm64) ;;
+    x64) arch_flag=(--x64) ;;
+    *)
+      echo "Unsupported macOS arch: $1" >&2
+      exit 1
+      ;;
+  esac
+
   echo "→ Packaging macOS ${arch} DMG"
   ensure_duckdb_binding "$arch"
   rebuild_keytar_for_arch "$arch"
-  npx electron-builder "--${arch}" --mac "${EB_ARGS[@]}" "$@"
+
+  (
+    cd "$ROOT"
+    "$ELECTRON_BUILDER" build --mac "${arch_flag[@]}" "${CONFIG_ARGS[@]}" "${EB_ARGS[@]}" "$@"
+  )
 }
 
 # MAC_BUILD_ARCH: space-separated list (default: arm64 x64). CI sets one arch per job.
@@ -59,4 +81,4 @@ for arch in $ARCHES; do
   build_dmg "$arch"
 done
 
-bash scripts/verify-mac-native.sh
+bash "${ROOT}/scripts/verify-mac-native.sh"
