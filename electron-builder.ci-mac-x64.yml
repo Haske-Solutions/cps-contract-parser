@@ -1,0 +1,9 @@
+# CI/local unsigned macOS x64 DMG (single-arch; no --x64 CLI flag needed).
+extends: electron-builder.yml
+mac:
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  target:
+    - target: dmg
+      arch:
+        - x64

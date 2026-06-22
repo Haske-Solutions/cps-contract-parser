@@ -1,0 +1,7 @@
+# CI signed macOS arm64 DMG.
+extends: electron-builder.yml
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
