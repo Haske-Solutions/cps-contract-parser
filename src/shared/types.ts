@@ -338,6 +338,21 @@ export interface ParserApiKeyPreview {
   proxyUrl: string | null
 }
 
+export type UpdateStatus =
+  | { status: 'idle' }
+  | { status: 'checking' }
+  | { status: 'available'; version: string }
+  | { status: 'not-available'; version: string }
+  | { status: 'downloading'; version: string; percent: number }
+  | { status: 'downloaded'; version: string }
+  | { status: 'error'; message: string }
+  | { status: 'disabled'; reason: string }
+
+export interface UpdateCheckResult {
+  ok: boolean
+  message: string
+}
+
 export interface ElectronAPI {
   file: {
     saveExcel: (buffer: ArrayBuffer, defaultName: string) => Promise<string | null>
@@ -426,6 +441,12 @@ export interface ElectronAPI {
   }
   renderer: {
     reportError: (detail: string) => Promise<void>
+  }
+  app: {
+    getVersion: () => Promise<string>
+    checkForUpdates: () => Promise<UpdateCheckResult>
+    quitAndInstall: () => Promise<void>
+    onUpdateStatus: (callback: (status: UpdateStatus) => void) => () => void
   }
 }
 

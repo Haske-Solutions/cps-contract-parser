@@ -112,7 +112,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact-name }}
-          path: ${{ matrix.artifact-glob }}
+          path: |
+            ${{ matrix.artifact-glob }}
+            release/*.yml
           if-no-files-found: error
           retention-days: 90
 
@@ -136,9 +138,9 @@ jobs:
         with:
           name: CPS Contract Parser ${{ github.ref_name }}
           files: |
-            artifacts/mac-dmg-arm64/*.dmg
-            artifacts/mac-dmg-x64/*.dmg
-            artifacts/win-exe/*.exe
+            artifacts/mac-dmg-arm64/**
+            artifacts/mac-dmg-x64/**
+            artifacts/win-exe/**
           generate_release_notes: true
           draft: false
           prerelease: false

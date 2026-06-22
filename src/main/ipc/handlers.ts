@@ -1,4 +1,4 @@
-import { ipcMain, dialog } from 'electron'
+import { ipcMain, dialog, app } from 'electron'
 import * as fs from 'fs'
 import type { IpcMainInvokeEvent } from 'electron'
 import type { ParseSession } from '../../shared/types'
@@ -41,6 +41,7 @@ import {
   saveSession,
 } from '../services/historyService'
 import { logger } from '../services/logger'
+import { checkForUpdates, quitAndInstallUpdate } from '../services/updaterService'
 import { IpcValidationError } from './validate'
 import {
   assertArray,
@@ -352,6 +353,20 @@ export function registerHandlers(): void {
 
   handle('renderer:reportError', (_evt, detail: unknown) => {
     logger.error('renderer', typeof detail === 'string' ? detail : 'Renderer error (no detail)')
+  })
+
+  // ── app / updates ─────────────────────────────────────────────────────────
+
+  handle('app:getVersion', (_evt) => {
+    return app.getVersion()
+  })
+
+  handle('app:checkForUpdates', async (_evt) => {
+    return checkForUpdates()
+  })
+
+  handle('app:quitAndInstall', (_evt) => {
+    quitAndInstallUpdate()
   })
 
   // Health-check (kept for diagnostics)

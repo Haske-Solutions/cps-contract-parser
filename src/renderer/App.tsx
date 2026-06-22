@@ -24,6 +24,7 @@ import { History } from './pages/History/History'
 import { Settings } from './pages/Settings/Settings'
 import { ConfirmDialog } from './components/layout/ConfirmDialog'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { useAppUpdates } from './hooks/useAppUpdates'
 import { cn } from '@/lib/utils'
 import { useSessionStore } from './store/sessionStore'
 import { isSessionInProgress } from './lib/parseFlow'
@@ -42,6 +43,7 @@ export function App() {
   const [pendingView, setPendingView] = useState<View | null>(null)
   const [showLeaveDialog, setShowLeaveDialog] = useState(false)
   const store = useSessionStore()
+  const { version: appVersion } = useAppUpdates({ notifyInBackground: true })
 
   const requestViewChange = useCallback(
     (next: View) => {
@@ -148,7 +150,7 @@ export function App() {
               variant="outline"
               className="text-[10px] text-sidebar-foreground/40 border-sidebar-border group-data-[collapsible=icon]:hidden"
             >
-              v1.0.0
+              v{appVersion}
             </Badge>
           </SidebarFooter>
           <SidebarRail />

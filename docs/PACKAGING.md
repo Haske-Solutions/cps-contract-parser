@@ -83,6 +83,20 @@ git push origin v1.0.1
 
 Requires `v*.*.*` tag pattern (see `.github/workflows/release.yml`).
 
+## Automatic updates
+
+Installed release builds check [GitHub Releases](https://github.com/Haske-Solutions/cps-contract-parser/releases) for updates about **10 seconds after launch** and when you click **Check for updates** in Settings.
+
+| Event | What users see |
+|-------|----------------|
+| Update available | Dialog + toast; download starts in the background |
+| Download complete | Dialog with **Restart now** / **Later**; also in Settings |
+| Up to date | Status message in Settings after a manual check |
+
+Release CI uploads `latest*.yml` metadata alongside installers so `electron-updater` can verify and download updates. The sidebar shows the running app version (from `package.json`).
+
+Auto-update requires a **packaged install** (not `npm run dev`). macOS unsigned builds may block updates until signing is configured.
+
 ## Verify native modules after packaging
 
 **Windows** (PowerShell, from repo root after `package:win`):

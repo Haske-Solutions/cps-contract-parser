@@ -92,7 +92,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mac-dmg-${{ matrix.mac_arch }}
-          path: ${{ matrix.mac_arch == 'arm64' && 'release/*arm64.dmg' || 'release/*.dmg' }}
+          path: |
+            ${{ matrix.mac_arch == 'arm64' && 'release/*arm64.dmg' || 'release/*.dmg' }}
+            release/*.yml
           if-no-files-found: error
           retention-days: 30
 
@@ -135,6 +137,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: win-exe
-          path: release/*.exe
+          path: |
+            release/*.exe
+            release/latest.yml
           if-no-files-found: error
           retention-days: 30

@@ -106,6 +106,23 @@ const api: ElectronAPI = {
   renderer: {
     reportError: (detail) => ipcRenderer.invoke('renderer:reportError', detail),
   },
+  app: {
+    getVersion: () => ipcRenderer.invoke('app:getVersion'),
+    checkForUpdates: () => ipcRenderer.invoke('app:checkForUpdates'),
+    quitAndInstall: () => ipcRenderer.invoke('app:quitAndInstall'),
+    onUpdateStatus: (callback) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        status: import('../shared/types').UpdateStatus,
+      ) => {
+        callback(status)
+      }
+      ipcRenderer.on('app:updateStatus', listener)
+      return () => {
+        ipcRenderer.removeListener('app:updateStatus', listener)
+      }
+    },
+  },
 }
 
 contextBridge.exposeInMainWorld('electronAPI', api)

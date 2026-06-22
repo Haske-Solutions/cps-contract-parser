@@ -3,12 +3,13 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { CheckCircle2, XCircle, Database, Sparkles } from 'lucide-react'
+import { CheckCircle2, XCircle, Database, Sparkles, Download } from 'lucide-react'
 import type { MotherduckTokenPreview, ParserApiKeyPreview } from '@shared/types'
 import { SettingsSection } from '../../components/layout/SettingsSection'
 import { ConfirmDialog } from '../../components/layout/ConfirmDialog'
 import { SavedMotherduckToken } from '../../components/Settings/SavedMotherduckToken'
 import { SavedParserApiKey } from '../../components/Settings/SavedParserApiKey'
+import { useAppUpdates } from '../../hooks/useAppUpdates'
 
 export function Settings() {
   const [motherduckTokenInput, setMotherduckTokenInput] = useState('')
@@ -34,6 +35,15 @@ export function Settings() {
   const [savingParser, setSavingParser] = useState(false)
   const [testingParser, setTestingParser] = useState(false)
   const [showRemoveParserKeyDialog, setShowRemoveParserKeyDialog] = useState(false)
+
+  const {
+    version: appVersion,
+    updateStatus,
+    checking: checkingForUpdates,
+    checkForUpdates,
+    quitAndInstall,
+    updatesDisabled,
+  } = useAppUpdates()
 
   useEffect(() => {
     void loadSettings()
@@ -138,11 +148,68 @@ export function Settings() {
   const isParserLoading = parserKeyPreview === undefined
   const canSaveParser = parserProxyUrl.trim().length > 0 || parserApiKeyInput.trim().length > 0
 
+  const updateStatusMessage = (() => {
+    switch (updateStatus.status) {
+      case 'checking':
+        return 'Checking for updates…'
+      case 'available':
+        return `Version ${updateStatus.version} is available and downloading.`
+      case 'downloading':
+        return `Downloading version ${updateStatus.version} (${Math.round(updateStatus.percent)}%)…`
+      case 'downloaded':
+        return `Version ${updateStatus.version} is ready to install.`
+      case 'not-available':
+        return `You're on the latest version (${updateStatus.version}).`
+      case 'error':
+        return updateStatus.message
+      case 'disabled':
+        return updateStatus.reason
+      default:
+        return 'Installed releases check GitHub automatically about 10 seconds after launch.'
+    }
+  })()
+
+  const handleCheckForUpdates = async () => {
+    const result = await checkForUpdates()
+    if (!result.ok && updateStatus.status !== 'disabled') {
+      toast.error(result.message)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-5 w-full">
       <p className="text-sm text-muted-foreground">
         Configure AI extraction and Pink Elephant warehouse access.
       </p>
+
+      <SettingsSection
+        icon={<Download className="size-4" aria-hidden="true" />}
+        title="Application"
+        description="Version and automatic updates from GitHub Releases."
+      >
+        <div className="flex flex-col gap-1">
+          <p className="text-sm font-medium">Current version</p>
+          <p className="text-sm font-mono text-muted-foreground">v{appVersion}</p>
+        </div>
+
+        <p className="text-sm text-muted-foreground">{updateStatusMessage}</p>
+
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            onClick={handleCheckForUpdates}
+            disabled={checkingForUpdates || updatesDisabled}
+            className="self-start"
+          >
+            {checkingForUpdates ? 'Checking…' : 'Check for updates'}
+          </Button>
+          {updateStatus.status === 'downloaded' && (
+            <Button onClick={() => void quitAndInstall()} className="self-start">
+              Restart to install {updateStatus.version}
+            </Button>
+          )}
+        </div>
+      </SettingsSection>
 
       <SettingsSection
         icon={<Sparkles className="size-4" aria-hidden="true" />}
