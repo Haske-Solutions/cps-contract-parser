@@ -135,11 +135,12 @@ jobs:
       - name: Verify DuckDB native binding (Windows)
         shell: pwsh
         run: |
-          $path = "release\win-unpacked\resources\app.asar.unpacked\node_modules\@duckdb\node-bindings-win32-x64\duckdb.node"
-          if (-not (Test-Path $path)) {
-            throw "Missing DuckDB Windows native module: $path (was this built on macOS?)"
+          $prebuilt = "node_modules\@duckdb\node-bindings-win32-x64\duckdb.node"
+          if (-not (Test-Path $prebuilt)) {
+            throw "DuckDB prebuild missing before packaging: $prebuilt"
           }
-          Write-Host "DuckDB binding OK: $path"
+          Write-Host "Pre-package DuckDB binding OK: $prebuilt"
+          pwsh -File scripts/verify-duckdb-packaged.ps1
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4

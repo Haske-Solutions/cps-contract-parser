@@ -9,7 +9,7 @@ asar: true
 
 asarUnpack:
   - "**/*.node"
-  - "**/node_modules/@duckdb/**"
+  - "**/@duckdb/**"
 
 directories:
   output: release/

@@ -95,11 +95,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $path = "release\win-unpacked\resources\app.asar.unpacked\node_modules\@duckdb\node-bindings-win32-x64\duckdb.node"
-          if (-not (Test-Path $path)) {
-            throw "Missing DuckDB Windows native module: $path"
+          $prebuilt = "node_modules\@duckdb\node-bindings-win32-x64\duckdb.node"
+          if (-not (Test-Path $prebuilt)) {
+            throw "DuckDB prebuild missing before packaging: $prebuilt"
           }
-          Write-Host "DuckDB binding OK: $path"
+          Write-Host "Pre-package DuckDB binding OK: $prebuilt"
+          pwsh -File scripts/verify-duckdb-packaged.ps1
 
       - name: Verify DuckDB native binding (macOS)
         if: runner.os == 'macOS'

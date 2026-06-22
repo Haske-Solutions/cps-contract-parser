@@ -67,8 +67,10 @@ Requires `v*.*.*` tag pattern (see `.github/workflows/release.yml`).
 **Windows** (PowerShell, from repo root after `package:win`):
 
 ```powershell
-Test-Path "release\win-unpacked\resources\app.asar.unpacked\node_modules\@duckdb\node-bindings-win32-x64\duckdb.node"
+Get-ChildItem -Path "release\win-unpacked" -Recurse -Filter "duckdb.node"
 ```
+
+Or use `pwsh -File scripts/verify-duckdb-packaged.ps1` after packaging.
 
 **macOS** (Apple Silicon example):
 
