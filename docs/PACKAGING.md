@@ -30,9 +30,28 @@ npm run branding:generate   # first time or after icon changes
 npm run package:mac -- -p never
 ```
 
-Artifacts: `release/*-arm64.dmg` (Apple Silicon) and `release/*.dmg` (Intel x64). Unpacked apps under `release/mac-arm64/` and `release/mac/`.
+Artifacts: `release/*-arm64.dmg` (Apple Silicon) and `release/*.dmg` without `-arm64` in the name (Intel x64). Unpacked apps under `release/mac-arm64/` and `release/mac/`.
 
-**Important:** Install the DMG that matches your Mac. An arm64 build on an Intel Mac (or vice versa) fails at launch with errors like `keytar.node: incompatible architecture`.
+**Important:** Install the DMG that matches your Mac CPU. The wrong installer fails at launch:
+
+```text
+keytar.node: incompatible architecture (have 'arm64', need 'x86_64')
+```
+
+| Your Mac | Download |
+|----------|----------|
+| Apple Silicon (M1/M2/M3/M4) | `*-arm64.dmg` |
+| Intel | `*.dmg` **without** `-arm64` in the filename |
+
+After installing, you can confirm the bundled native module matches your CPU:
+
+```bash
+file "/Applications/CPS Contract Parser.app/Contents/Resources/app.asar.unpacked/node_modules/keytar/build/Release/keytar.node"
+# Intel Mac should show: x86_64
+# Apple Silicon should show: arm64
+```
+
+CI builds each macOS architecture in a **separate job** with a fresh `npm ci` and an explicit `keytar` rebuild (`scripts/package-mac-ci.sh`), then verifies with `scripts/verify-mac-native.sh`.
 
 Signing/notarization runs only when `CSC_*` and `APPLE_*` GitHub secrets are set. Without them, CI builds **unsigned** DMGs (see `scripts/package-mac-ci.sh`). Users may need right-click → Open on first launch.
 

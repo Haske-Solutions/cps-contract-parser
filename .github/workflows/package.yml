@@ -56,10 +56,14 @@ jobs:
         run: npm run build
 
   package-mac:
-    name: Package macOS
+    name: Package macOS (${{ matrix.mac_arch }})
     needs: gate
     if: inputs.platform == 'mac' || inputs.platform == 'both'
     runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mac_arch: [arm64, x64]
     steps:
       - uses: actions/checkout@v4
 
@@ -76,6 +80,7 @@ jobs:
 
       - name: Package — macOS
         env:
+          MAC_BUILD_ARCH: ${{ matrix.mac_arch }}
           CSC_LINK_RAW: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD_RAW: ${{ secrets.CSC_KEY_PASSWORD }}
           APPLE_ID_RAW: ${{ secrets.APPLE_ID }}
@@ -83,27 +88,11 @@ jobs:
           APPLE_TEAM_ID_RAW: ${{ secrets.APPLE_TEAM_ID }}
         run: bash scripts/package-mac-ci.sh
 
-      - name: Verify DuckDB native binding (macOS)
-        run: |
-          set -e
-          for arch in mac-arm64 mac; do
-            app="release/${arch}/CPS Contract Parser.app"
-            if [ -d "$app" ]; then
-              duckdb="$app/Contents/Resources/app.asar.unpacked/node_modules/@duckdb"
-              if ! find "$duckdb" -name 'duckdb.node' | grep -q .; then
-                echo "Missing DuckDB .node under $duckdb"
-                exit 1
-              fi
-              echo "DuckDB binding OK in $app"
-              break
-            fi
-          done
-
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: mac-dmg
-          path: release/*.dmg
+          name: mac-dmg-${{ matrix.mac_arch }}
+          path: ${{ matrix.mac_arch == 'arm64' && 'release/*arm64.dmg' || 'release/*.dmg' }}
           if-no-files-found: error
           retention-days: 30
 

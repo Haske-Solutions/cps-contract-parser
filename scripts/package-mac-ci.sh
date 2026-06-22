@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 # macOS packaging for CI and local release builds.
-# Builds arm64 and x64 DMGs separately so native modules (keytar, duckdb) match each arch.
-# GitHub Actions passes missing secrets as empty strings; CSC_LINK="" makes electron-builder
-# treat the repo root as a certificate path and fail.
+# Builds one or both DMGs with native modules (keytar, duckdb) matching the target CPU.
 set -euo pipefail
 
 DUCKDB_BINDINGS_VERSION="1.5.3-r.3"
@@ -35,13 +33,30 @@ ensure_duckdb_binding() {
   npm install --no-save "${pkg}@${DUCKDB_BINDINGS_VERSION}"
 }
 
+rebuild_keytar_for_arch() {
+  local arch="$1"
+  local electron_version
+  electron_version="$(node -p "require('electron/package.json').version")"
+  echo "→ Rebuilding keytar for darwin-${arch} (Electron ${electron_version})"
+  rm -rf node_modules/keytar/build
+  npx @electron/rebuild --force --only keytar \
+    --arch "$arch" \
+    --platform darwin \
+    --version "$electron_version"
+}
+
 build_dmg() {
   local arch="$1"
   echo "→ Packaging macOS ${arch} DMG"
   ensure_duckdb_binding "$arch"
+  rebuild_keytar_for_arch "$arch"
   npx electron-builder --mac dmg "--${arch}" "${EB_ARGS[@]}" "$@"
 }
 
-# Separate invocations so @electron/rebuild produces the correct keytar.node per arch.
-build_dmg arm64
-build_dmg x64
+# MAC_BUILD_ARCH: space-separated list (default: arm64 x64). CI sets one arch per job.
+ARCHES="${MAC_BUILD_ARCH:-arm64 x64}"
+for arch in $ARCHES; do
+  build_dmg "$arch"
+done
+
+bash scripts/verify-mac-native.sh
