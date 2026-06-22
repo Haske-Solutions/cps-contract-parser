@@ -74,12 +74,12 @@ describe('rowFactories', () => {
     const row = createEmptyExtrasRow({
       supplierName: 'Acme Safaris',
       extraCategory: 'Park Fee',
-      priceType: 'per_vehicle',
+      priceType: 'per_unit',
     })
 
     expect(row.supplierName).toBe('Acme Safaris')
     expect(row.extraCategory).toBe('Park Fee')
-    expect(row.priceType).toBe('per_vehicle')
+    expect(row.priceType).toBe('per_unit')
     expect(row.rateCode).toBe('CHD')
   })
 

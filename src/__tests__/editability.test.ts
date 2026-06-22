@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest'
-import * as XLSX from 'xlsx'
 import {
   RATE_ROW_EDITABLE_KEYS,
   EXTRAS_ROW_EDITABLE_KEYS,

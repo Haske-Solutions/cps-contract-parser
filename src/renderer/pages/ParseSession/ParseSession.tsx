@@ -419,13 +419,14 @@ export function ParseSession() {
           targets,
         )
 
+        const activeWalkthrough = useBatchSessionStore.getState().walkthrough
         const finalWalkthrough: SupplierWalkthroughContext = {
           anchorTerm,
           queue,
-          currentIndex: partialWalkthrough?.currentIndex ?? 0,
+          currentIndex: activeWalkthrough?.currentIndex ?? 0,
           extractionsByPeId,
-          completedExports: partialWalkthrough?.completedExports ?? [],
-          status: partialWalkthrough?.status ?? 'in_progress',
+          completedExports: activeWalkthrough?.completedExports ?? [],
+          status: activeWalkthrough?.status ?? 'in_progress',
         }
         batchStore.setWalkthrough(finalWalkthrough)
 

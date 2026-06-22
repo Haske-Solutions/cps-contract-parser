@@ -10,7 +10,6 @@ import {
 import {
   buildSession,
   baseExtraction,
-  mockSupplier,
   mockServiceMatch,
   mockExtrasMatch,
   mockExtractedRate,
