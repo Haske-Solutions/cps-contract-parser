@@ -83,7 +83,7 @@ build_dmg() {
   echo "→ electron-builder --mac -c ${config_file} --publish never"
   (
     cd "$ROOT"
-    "$ELECTRON_BUILDER" --mac -c "$config_file" --publish never "$@"
+    "$ELECTRON_BUILDER" --mac -c "$config_file" --publish never
   )
 }
 
