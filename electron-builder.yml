@@ -45,11 +45,6 @@ mac:
   gatekeeperAssess: true
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist
-  target:
-    - target: dmg
-      arch:
-        - x64
-        - arm64
 
 dmg:
   title: CPS Contract Parser
