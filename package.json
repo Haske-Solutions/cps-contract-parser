@@ -1,6 +1,6 @@
 {
   "name": "cps-contract-parser",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "CPS Contract Rate Sheet Parser — Electron desktop app",
   "author": "Cheli and Peacock Safaris",
   "repository": {
