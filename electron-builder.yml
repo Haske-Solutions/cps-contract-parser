@@ -2,6 +2,9 @@ appId: com.chelipeacock.contract-parser
 productName: CPS Contract Parser
 copyright: "Copyright © 2026 Cheli and Peacock Safaris"
 
+# Native modules (@duckdb/node-api, keytar) require per-OS builds — see docs/PACKAGING.md.
+# Do not use electron-builder --win on macOS; the Windows installer will miss duckdb.node.
+
 asar: true
 
 asarUnpack:

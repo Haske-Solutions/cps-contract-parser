@@ -1,25 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('../main/services/motherduckClient', () => ({
-  runQuery: vi.fn(),
+  runQueryBound: vi.fn(),
 }))
 
-import { runQuery } from '../main/services/motherduckClient'
+import { runQueryBound } from '../main/services/motherduckClient'
 import {
   accommodationSupplierCatalog,
   accommodationSupplierCatalogForTerms,
 } from '../main/services/warehouseService'
 
-const mockRunQuery = vi.mocked(runQuery)
+const mockRunQueryBound = vi.mocked(runQueryBound)
 
 describe('accommodationSupplierCatalog', () => {
   beforeEach(() => {
-    mockRunQuery.mockReset()
+    mockRunQueryBound.mockReset()
   })
 
   it('returns empty array for blank anchor term', async () => {
     expect(await accommodationSupplierCatalog('')).toEqual([])
-    expect(mockRunQuery).not.toHaveBeenCalled()
+    expect(mockRunQueryBound).not.toHaveBeenCalled()
   })
 
   it('queries accommodation-filtered suppliers by anchor term', async () => {
@@ -27,30 +27,31 @@ describe('accommodationSupplierCatalog', () => {
       { supplier_id: 1, name: 'Tortilis Camp', code: 'TC01', destination_country: 'KE' },
       { supplier_id: 2, name: 'Elsas Kopje', code: 'EK01', destination_country: 'KE' },
     ]
-    mockRunQuery.mockResolvedValue(rows)
+    mockRunQueryBound.mockResolvedValue(rows)
 
     const result = await accommodationSupplierCatalog('Elewana')
 
     expect(result).toEqual(rows)
-    expect(mockRunQuery).toHaveBeenCalledOnce()
-    const sql = mockRunQuery.mock.calls[0]![0] as string
+    expect(mockRunQueryBound).toHaveBeenCalledOnce()
+    const [sql, params] = mockRunQueryBound.mock.calls[0]!
     expect(sql).toMatch(/type_name IN/)
     expect(sql).toMatch(/Double/)
     expect(sql).toMatch(/House/)
-    expect(sql).toMatch(/Elewana/i)
+    expect(sql).toMatch(/ILIKE \$1/)
     expect(sql).toMatch(/LIMIT 200/)
     expect(sql).not.toMatch(/LIMIT 20[^0]/)
+    expect(params).toEqual(['%Elewana%'])
   })
 
-  it('escapes single quotes in anchor term', async () => {
-    mockRunQuery.mockResolvedValue([])
+  it('passes anchor term as a bound parameter (no SQL injection)', async () => {
+    mockRunQueryBound.mockResolvedValue([])
     await accommodationSupplierCatalog("O'Brien")
-    const sql = mockRunQuery.mock.calls[0]![0] as string
-    expect(sql).toContain("O''Brien")
+    const [, params] = mockRunQueryBound.mock.calls[0]!
+    expect(params).toEqual(["%O'Brien%"])
   })
 
   it('normalizes null destination_country from warehouse rows', async () => {
-    mockRunQuery.mockResolvedValue([
+    mockRunQueryBound.mockResolvedValue([
       { supplier_id: 8, name: 'Camp Without Country', code: 'CW', destination_country: null },
     ])
 
@@ -62,11 +63,11 @@ describe('accommodationSupplierCatalog', () => {
 
 describe('accommodationSupplierCatalogForTerms', () => {
   beforeEach(() => {
-    mockRunQuery.mockReset()
+    mockRunQueryBound.mockReset()
   })
 
   it('unions and dedupes suppliers across anchor terms', async () => {
-    mockRunQuery
+    mockRunQueryBound
       .mockResolvedValueOnce([
         { supplier_id: 1, name: 'Tortilis Camp', code: 'TC01', destination_country: 'KE' },
       ])
@@ -78,6 +79,6 @@ describe('accommodationSupplierCatalogForTerms', () => {
     const result = await accommodationSupplierCatalogForTerms(['Elewana Tortilis', 'Elewana'])
 
     expect(result).toHaveLength(2)
-    expect(mockRunQuery).toHaveBeenCalledTimes(2)
+    expect(mockRunQueryBound).toHaveBeenCalledTimes(2)
   })
 })

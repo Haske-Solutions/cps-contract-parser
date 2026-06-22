@@ -1,4 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+vi.mock('../main/services/keystoreService', () => ({
+  getParserProxyUrl: vi.fn(),
+  resolveParserApiKey: vi.fn(),
+}))
+
+vi.mock('../main/services/logger', () => ({
+  logger: {
+    warn: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    debug: vi.fn(),
+  },
+}))
+
 import { normalizeProxyUrl } from '../main/services/parserProxyClient'
 
 describe('normalizeProxyUrl', () => {

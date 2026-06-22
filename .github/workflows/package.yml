@@ -1,17 +1,27 @@
-name: Release
+name: Package
 
+# Build installers on the correct OS without creating a git tag or GitHub Release.
+# Use for Windows builds from a Mac dev machine (native DuckDB/keytar require per-OS runners).
 on:
-  push:
-    tags:
-      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to package
+        required: true
+        default: both
+        type: choice
+        options:
+          - mac
+          - win
+          - both
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: package-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   gate:
-    name: Pre-release verification
+    name: Verify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,21 +55,11 @@ jobs:
       - name: Production build
         run: npm run build
 
-  package:
-    name: Package (${{ matrix.os }})
+  package-mac:
+    name: Package macOS
     needs: gate
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest
-            artifact-name: mac-dmg
-            artifact-glob: release/*.dmg
-          - os: windows-latest
-            artifact-name: win-exe
-            artifact-glob: release/*.exe
-
+    if: inputs.platform == 'mac' || inputs.platform == 'both'
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -75,7 +75,6 @@ jobs:
         run: npm run build
 
       - name: Package — macOS
-        if: runner.os == 'macOS'
         run: npx electron-builder --mac --publish never
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
@@ -84,25 +83,7 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
-      - name: Package — Windows
-        if: runner.os == 'Windows'
-        run: npx electron-builder --win --publish never
-        env:
-          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-
-      - name: Verify DuckDB native binding (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $path = "release\win-unpacked\resources\app.asar.unpacked\node_modules\@duckdb\node-bindings-win32-x64\duckdb.node"
-          if (-not (Test-Path $path)) {
-            throw "Missing DuckDB Windows native module: $path"
-          }
-          Write-Host "DuckDB binding OK: $path"
-
       - name: Verify DuckDB native binding (macOS)
-        if: runner.os == 'macOS'
         run: |
           set -e
           for arch in mac-arm64 mac; do
@@ -118,38 +99,52 @@ jobs:
             fi
           done
 
-      - name: Upload artifact
+      - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact-name }}
-          path: ${{ matrix.artifact-glob }}
+          name: mac-dmg
+          path: release/*.dmg
           if-no-files-found: error
-          retention-days: 90
+          retention-days: 30
 
-  publish:
-    name: Publish GitHub Release
-    needs: package
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
+  package-win:
+    name: Package Windows
+    needs: gate
+    if: inputs.platform == 'win' || inputs.platform == 'both'
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/setup-node@v4
         with:
-          path: artifacts/
+          node-version: 'lts/*'
+          cache: 'npm'
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: CPS Contract Parser ${{ github.ref_name }}
-          files: |
-            artifacts/mac-dmg/*.dmg
-            artifacts/win-exe/*.exe
-          generate_release_notes: true
-          draft: false
-          prerelease: false
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build renderer and main process
+        run: npm run build
+
+      - name: Package — Windows
+        run: npx electron-builder --win --publish never
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+
+      - name: Verify DuckDB native binding (Windows)
+        shell: pwsh
+        run: |
+          $path = "release\win-unpacked\resources\app.asar.unpacked\node_modules\@duckdb\node-bindings-win32-x64\duckdb.node"
+          if (-not (Test-Path $path)) {
+            throw "Missing DuckDB Windows native module: $path (was this built on macOS?)"
+          }
+          Write-Host "DuckDB binding OK: $path"
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: win-exe
+          path: release/*.exe
+          if-no-files-found: error
+          retention-days: 30
