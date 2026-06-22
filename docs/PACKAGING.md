@@ -32,7 +32,7 @@ npm run package:mac -- -p never
 
 Artifacts: `release/*.dmg`, unpacked app under `release/mac-arm64/` (Apple Silicon).
 
-Signing/notarization runs only when `CSC_*` and `APPLE_*` environment variables are set. Without them, builds are unsigned (fine for local testing).
+Signing/notarization runs only when `CSC_*` and `APPLE_*` GitHub secrets are set. Without them, CI builds **unsigned** DMGs (see `scripts/package-mac-ci.sh`). Users may need right-click → Open on first launch.
 
 ### Windows (on a Windows PC)
 

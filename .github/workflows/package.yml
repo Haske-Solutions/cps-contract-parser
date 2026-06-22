@@ -75,13 +75,13 @@ jobs:
         run: npm run build
 
       - name: Package — macOS
-        run: npx electron-builder --mac --publish never
         env:
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CSC_LINK_RAW: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD_RAW: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID_RAW: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD_RAW: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID_RAW: ${{ secrets.APPLE_TEAM_ID }}
+        run: bash scripts/package-mac-ci.sh
 
       - name: Verify DuckDB native binding (macOS)
         run: |
