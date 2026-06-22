@@ -50,7 +50,7 @@ build_dmg() {
   echo "→ Packaging macOS ${arch} DMG"
   ensure_duckdb_binding "$arch"
   rebuild_keytar_for_arch "$arch"
-  npx electron-builder --mac dmg "--${arch}" "${EB_ARGS[@]}" "$@"
+  npx electron-builder "--${arch}" --mac "${EB_ARGS[@]}" "$@"
 }
 
 # MAC_BUILD_ARCH: space-separated list (default: arm64 x64). CI sets one arch per job.
