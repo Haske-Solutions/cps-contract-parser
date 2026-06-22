@@ -789,6 +789,43 @@ export function ParseSession() {
     })
   }, [batchStore, recordCurrentExport, regenerateWorkbookBuffer, startSupplierReview, mappingGroups, store])
 
+  const handleSaveExcelAndFinish = useCallback(async () => {
+    if (hasStop) return
+    if (store.outputRows.length === 0) {
+      setErrorMessage('Excel file is not ready yet. Wait for generation to finish or retry.')
+      return
+    }
+    setIsDownloading(true)
+    setErrorMessage(null)
+    try {
+      const buffer = (await regenerateWorkbookBuffer()) ?? excelBuffer
+      if (!buffer) {
+        setErrorMessage('Excel file is not ready yet. Wait for generation to finish or retry.')
+        return
+      }
+      const supplierCode = store.supplier?.code ?? 'export'
+      const defaultName = `CPS_${supplierCode}_rates.xlsx`
+      const savedPath = await window.electronAPI.file.saveExcel(buffer, defaultName)
+      if (!savedPath) return
+
+      toast.success('Excel file saved')
+      await handleAdvanceToNextSupplier()
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Download failed'
+      setErrorMessage(msg)
+      toast.error(msg)
+    } finally {
+      setIsDownloading(false)
+    }
+  }, [
+    hasStop,
+    store.outputRows.length,
+    store.supplier?.code,
+    regenerateWorkbookBuffer,
+    excelBuffer,
+    handleAdvanceToNextSupplier,
+  ])
+
   const handleReviewMoreProperties = useCallback(() => {
     const prepared = prepareGroupsForNextBatch(mappingGroups)
     setMappingGroups(prepared)
@@ -913,7 +950,15 @@ export function ParseSession() {
       </div>
 
       <div className="flex-1 w-full flex flex-col gap-8">
-        <StepProgress currentStep={store.step} status={store.status} />
+        <StepProgress
+          currentStep={store.step}
+          status={store.status}
+          markFinalStepComplete={
+            store.step === 6 &&
+            store.status === 'complete' &&
+            (!batchStore.walkthrough || batchStore.walkthrough.status === 'complete')
+          }
+        />
 
         {errorMessage && (
           <Alert variant="destructive">
@@ -1106,27 +1151,62 @@ export function ParseSession() {
               batchStore.walkthrough &&
               batchStore.walkthrough.status === 'in_progress' && (
                 <div className="rounded-lg border border-border bg-card p-4 flex flex-col gap-3">
-                  <p className="text-sm font-medium">
-                    {batchStore.walkthrough.queue.length > 1
-                      ? `Property ${batchStore.walkthrough.currentIndex + 1} of ${batchStore.walkthrough.queue.length} complete`
-                      : 'Property review complete'}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {batchStore.walkthrough.currentIndex <
-                    batchStore.walkthrough.queue.length - 1
-                      ? `Continue to the next selected property: ${batchStore.walkthrough.queue[batchStore.walkthrough.currentIndex + 1]?.peSupplier?.name ?? '—'}.`
-                      : 'Finish this batch to save workbooks and select more properties if needed.'}
-                  </p>
-                  <Button
-                    onClick={handleAdvanceToNextSupplier}
-                    disabled={excelBuffer === null || hasStop}
-                    className="self-start"
-                  >
-                    {batchStore.walkthrough.currentIndex <
-                    batchStore.walkthrough.queue.length - 1
-                      ? 'Continue to next property'
-                      : 'Finish batch'}
-                  </Button>
+                  {batchStore.walkthrough.queue.length === 1 ? (
+                    <>
+                      <p className="text-sm font-medium">Ready to save your workbook</p>
+                      <p className="text-sm text-muted-foreground">
+                        You&apos;ve finished reviewing this property. Scroll down to preview and edit
+                        rates if needed, then save the Excel file. You can also add more properties
+                        from the same contract later.
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          onClick={handleSaveExcelAndFinish}
+                          disabled={excelBuffer === null || hasStop || isDownloading}
+                          className="self-start"
+                        >
+                          {isDownloading ? (
+                            <>
+                              <Spinner className="size-4 mr-2" />
+                              Saving…
+                            </>
+                          ) : (
+                            'Save Excel file'
+                          )}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={handleAdvanceToNextSupplier}
+                          disabled={excelBuffer === null || hasStop || isDownloading}
+                          className="self-start"
+                        >
+                          Add more properties later
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm font-medium">
+                        {`Property ${batchStore.walkthrough.currentIndex + 1} of ${batchStore.walkthrough.queue.length} complete`}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {batchStore.walkthrough.currentIndex <
+                        batchStore.walkthrough.queue.length - 1
+                          ? `Continue to the next selected property: ${batchStore.walkthrough.queue[batchStore.walkthrough.currentIndex + 1]?.peSupplier?.name ?? '—'}.`
+                          : 'Finish this batch to save workbooks and select more properties if needed.'}
+                      </p>
+                      <Button
+                        onClick={handleAdvanceToNextSupplier}
+                        disabled={excelBuffer === null || hasStop}
+                        className="self-start"
+                      >
+                        {batchStore.walkthrough.currentIndex <
+                        batchStore.walkthrough.queue.length - 1
+                          ? 'Continue to next property'
+                          : 'Finish batch'}
+                      </Button>
+                    </>
+                  )}
                 </div>
               )}
             {walkthroughComplete && batchStore.walkthrough && (

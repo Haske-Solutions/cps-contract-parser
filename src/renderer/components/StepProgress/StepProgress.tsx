@@ -5,12 +5,15 @@ import type { ParseSession } from '@shared/types'
 interface Props {
   currentStep: ParseSession['step']
   status: ParseSession['status']
+  /** When on step 6, show the final step as completed (checkmark) instead of current. */
+  markFinalStepComplete?: boolean
 }
 
 const STEPS = [1, 2, 3, 4, 5, 6] as const
 
-export function StepProgress({ currentStep, status }: Props) {
-  const progressPct = ((currentStep - 1) / (STEPS.length - 1)) * 100
+export function StepProgress({ currentStep, status, markFinalStepComplete = false }: Props) {
+  const isFinalStepDone = currentStep === 6 && markFinalStepComplete
+  const progressPct = isFinalStepDone ? 100 : ((currentStep - 1) / (STEPS.length - 1)) * 100
 
   return (
     <nav aria-label="Parsing workflow progress" className="w-full">
@@ -40,8 +43,8 @@ export function StepProgress({ currentStep, status }: Props) {
       {/* Desktop: horizontal stepper */}
       <ol className="hidden md:flex items-start w-full gap-0">
         {STEPS.map((step, i) => {
-          const isComplete = step < currentStep
-          const isCurrent = step === currentStep
+          const isComplete = step < currentStep || (step === currentStep && isFinalStepDone)
+          const isCurrent = step === currentStep && !isFinalStepDone
           const isBlocked = isCurrent && status === 'blocked'
           const isLast = i === STEPS.length - 1
           const label = STEP_LABELS[step]
