@@ -1,64 +1,14 @@
 import archiver, { type Archiver } from 'archiver'
 import { PassThrough } from 'stream'
-import type {
-  BatchExportSummary,
-  BatchSessionContext,
-  ConfirmedPolicy,
-  ParseSession,
-  Supplier,
-} from '../../shared/types'
-import { buildRows, generateExcel } from './exportService'
-import {
-  serviceMatch,
-  extrasMatch,
-  policyServiceMatch,
-  priorRates,
-} from './warehouseService'
+import type { BatchExportSummary, BatchSessionContext } from '../../shared/types'
+import { batchMismatchFlags } from '../../shared/sessionBuilder'
+import { validationFlagsToNotes } from '../../shared/validationNotes'
+import { buildRows, buildWorkbookBuffer } from './exportService'
+import { buildBatchExportSession } from './batchSessionBuilder'
 import { saveSession } from './historyService'
 
 function createZipArchive(options?: archiver.ArchiverOptions): Archiver {
   return archiver('zip', options)
-}
-
-function autoConfirmedPolicies(
-  extraction: ParseSession['extraction'],
-): ConfirmedPolicy[] {
-  if (!extraction) return []
-  return extraction.policies.map((p) => ({ type: p.type, confirmed: true }))
-}
-
-async function buildBatchSession(
-  supplier: Supplier,
-  extraction: NonNullable<ParseSession['extraction']>,
-  sessionId: string,
-): Promise<ParseSession> {
-  const [accommodationMatches, extrasMatches, policyMatches, prior] = await Promise.all([
-    serviceMatch(supplier.supplier_id),
-    extrasMatch(supplier.supplier_id),
-    policyServiceMatch(supplier.supplier_id),
-    priorRates(supplier.supplier_id, ''),
-  ])
-
-  return {
-    id: `${sessionId}-batch-${supplier.supplier_id}`,
-    createdAt: new Date().toISOString(),
-    supplier,
-    ratePDF: null,
-    contractForm: null,
-    extraction,
-    confirmedPolicies: autoConfirmedPolicies(extraction),
-    serviceMatches: accommodationMatches,
-    policyMatches,
-    extrasMatches,
-    priorRates: prior,
-    mismatches: [],
-    mismatchResolutions: [],
-    outputRows: [],
-    extrasRows: [],
-    validationFlags: [],
-    step: 6,
-    status: 'complete',
-  }
 }
 
 function sanitizeFilename(value: string): string {
@@ -85,7 +35,11 @@ export async function generateBatchZip(
   const bufferPromise = streamToBuffer(stream)
   const summaries: BatchExportSummary[] = []
 
-  for (const peId of context.batchPeIds) {
+  const exportPeIds = context.reviewedPeIds?.length
+    ? context.batchPeIds.filter((id) => context.reviewedPeIds!.includes(id))
+    : context.batchPeIds
+
+  for (const peId of exportPeIds) {
     const mapping = context.mappings.find(
       (m) => m.peSupplier?.supplier_id === peId && m.included,
     )
@@ -106,18 +60,20 @@ export async function generateBatchZip(
     }
 
     try {
-      const session = await buildBatchSession(supplier, extraction, parentSessionId)
-      const { rateRows, extrasRows, flags } = buildRows(session)
-      const workbook = generateExcel(session)
+      const session = await buildBatchExportSession(supplier, extraction, parentSessionId)
+      const { rateRows, extrasRows, flags, validationNotes } = buildRows(session)
+      const allFlags = [...flags, ...batchMismatchFlags(extraction)]
+      const allNotes = [...validationNotes, ...validationFlagsToNotes(batchMismatchFlags(extraction))]
+      const buffer = await buildWorkbookBuffer(rateRows, extrasRows, allFlags, allNotes)
       const filename = `CPS_${sanitizeFilename(supplier.code)}_rates.xlsx`
 
-      archive.append(Buffer.from(workbook), { name: filename })
+      archive.append(Buffer.from(buffer), { name: filename })
 
       await saveSession({
         ...session,
         outputRows: rateRows,
         extrasRows,
-        validationFlags: flags,
+        validationFlags: allFlags,
       })
 
       summaries.push({
@@ -126,7 +82,7 @@ export async function generateBatchZip(
         supplierCode: supplier.code,
         success: true,
         rateRowCount: rateRows.length,
-        validationFlagCount: flags.length,
+        validationFlagCount: allFlags.length,
       })
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err)

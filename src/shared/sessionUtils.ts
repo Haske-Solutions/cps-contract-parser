@@ -14,6 +14,7 @@ export function toExportSession(state: ParseSession): ParseSession {
     extrasMatches: [...state.extrasMatches],
     policyMatches: [...state.policyMatches],
     priorRates: [...state.priorRates],
+    inventoryCounts: state.inventoryCounts,
     mismatches: [...state.mismatches],
     mismatchResolutions: [...state.mismatchResolutions],
     outputRows: [...state.outputRows],

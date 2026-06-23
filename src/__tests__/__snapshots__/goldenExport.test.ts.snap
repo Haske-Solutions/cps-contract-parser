@@ -1,0 +1,34 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`golden export > produces stable accommodation row snapshot for minimal extraction 1`] = `
+[
+  {
+    "adultBuy": 350,
+    "adultSell": 350,
+    "agentGroupId": 0,
+    "api": true,
+    "businessModel": "BM1",
+    "childCost": 175,
+    "childSell": 175,
+    "currencyCode": "USD",
+    "dateFrom": "2026-01-01",
+    "dateTo": "2026-03-31",
+    "isException": false,
+    "markup": 0,
+    "maxPax": 99,
+    "maxStay": 99,
+    "minPax": 1,
+    "minStay": 1,
+    "rateCode": "PPPN",
+    "rateName": "Per Person Per Nts",
+    "ratePlan": "PPPN",
+    "serviceCode": "DD001",
+    "serviceId": 101,
+    "serviceName": "FB Double Deluxe",
+    "supplierCode": "SL001",
+    "supplierCommission": 0,
+    "supplierId": 42,
+    "supplierName": "Savanna Lodge",
+  },
+]
+`;

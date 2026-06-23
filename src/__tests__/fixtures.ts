@@ -9,6 +9,7 @@ import type {
   ConfirmedPolicy,
   MismatchResolution,
 } from '../shared/types'
+import { rateRecordKey } from '../shared/serviceTokenMatcher'
 
 export const mockSupplier: Supplier = {
   supplier_id: 42,
@@ -17,28 +18,10 @@ export const mockSupplier: Supplier = {
   destination_country: 'KE',
 }
 
-export const mockServiceMatch: ServiceMatch = {
-  extractedName: 'Deluxe Double',
-  peServiceId: 101,
-  peServiceName: 'Deluxe Double',
-  peServiceCode: 'DD001',
-  status: 'matched',
-  candidates: [],
-}
-
-export const mockExtrasMatch: ServiceMatch = {
-  extractedName: 'Laundry',
-  peServiceId: 201,
-  peServiceName: 'Laundry',
-  peServiceCode: 'EX001',
-  status: 'matched',
-  candidates: [],
-}
-
 export const mockExtractedRate: ExtractedRate = {
   propertyName: 'Savanna Lodge',
   roomType: 'Deluxe Double',
-  mealBasis: 'Full Board',
+  mealBasis: 'FB',
   seasonName: 'Peak Season',
   validFrom: '2026-01-01',
   validTo: '2026-03-31',
@@ -51,11 +34,34 @@ export const mockExtractedRate: ExtractedRate = {
   notes: '',
 }
 
+const _rateKey = rateRecordKey(mockExtractedRate)
+
+export const mockServiceMatch: ServiceMatch = {
+  extractedName: _rateKey,
+  peServiceId: 101,
+  peServiceName: 'FB Double Deluxe',
+  peServiceCode: 'DD001',
+  status: 'matched',
+  candidates: [],
+  bucket: 'accommodation',
+  rateRecordKey: _rateKey,
+}
+
+export const mockExtrasMatch: ServiceMatch = {
+  extractedName: 'Laundry',
+  peServiceId: 201,
+  peServiceName: 'Laundry',
+  peServiceCode: 'EX001',
+  status: 'matched',
+  candidates: [],
+  bucket: 'extras',
+}
+
 export const mockCiorPolicy: ExtractedPolicy = {
   type: 'CIOR',
   verbatimText: 'Children in own room free of charge',
   interpretation: 'CIOR policy applies — child pays no adult rate',
-  calculationApplied: 'adultBuy = 0',
+  calculationApplied: '75% of PPS adult rate',
   peServicesAffected: [],
   confirmed: false,
 }
@@ -81,6 +87,7 @@ export function buildSession(overrides: Partial<ParseSession> = {}): ParseSessio
     extrasMatches: [],
     policyMatches: [],
     priorRates: [],
+    inventoryCounts: null,
     mismatches: [],
     mismatchResolutions: [],
     outputRows: [],
@@ -93,7 +100,7 @@ export function buildSession(overrides: Partial<ParseSession> = {}): ParseSessio
 }
 
 export const mockPriorRate: PriorRate = {
-  serviceName: 'Deluxe Double',
+  serviceName: 'FB Double Deluxe',
   adultCost: 300,
   childCost: 150,
   rateType: 'DBL',
@@ -103,6 +110,7 @@ export const mockPriorRate: PriorRate = {
 }
 
 export const mockMismatchResolution: MismatchResolution = {
+  id: 'mismatch-1',
   field: 'validFrom',
   chosenValue: '2026-02-01',
   resolution: 'use_form',
@@ -112,4 +120,41 @@ export const mockMismatchResolution: MismatchResolution = {
 export const mockConfirmedCior: ConfirmedPolicy = {
   type: 'CIOR',
   confirmed: true,
+}
+
+export const mockPeServices = [
+  { id: 101, name: 'FB Double Deluxe', code: 'DD001' },
+  { id: 102, name: 'Full Board Double Safari Tent', code: 'DT002' },
+  { id: 103, name: 'HB Twin Cottage', code: 'TC003' },
+  { id: 104, name: 'Full Board Double Suite', code: 'DS004' },
+]
+
+export const extractionWithCrossChecks: ExtractionResult = {
+  ...baseExtraction,
+  crossChecks: [
+    {
+      id: 'cc-1',
+      section: 'Rates',
+      field: 'Adult Buy',
+      formValue: '350',
+      pdfValue: '360',
+      rateRef: 'Deluxe Double',
+    },
+  ],
+}
+
+export const extractionWithNonAccom: ExtractionResult = {
+  ...baseExtraction,
+  nonAccommodationRates: [
+    {
+      description: 'Airport Transfer',
+      rateTypeCode: 'PV',
+      cost: 120,
+      sell: 120,
+      released: true,
+      validFrom: '2026-01-01',
+      validTo: '2026-12-31',
+      notes: '',
+    },
+  ],
 }

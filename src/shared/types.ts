@@ -6,6 +6,7 @@ export interface Supplier {
   name: string
   code: string
   destination_country: string
+  head_office_name?: string
 }
 
 export interface ChildRate {
@@ -24,11 +25,90 @@ export interface ExtractedRate {
   validTo: string
   rateAmount: number
   currency: string
+  /** Occupancy code (DBL, TWN, …) from extraction. */
   rateCode: string
+  /** PE Appendix A rate type (PPPN, PRPN, …). Defaults at export if absent. */
+  rateTypeCode?: string
   occupancyRules: string
   childRates: ChildRate[]
   singleSupplement: number | null
   notes: string
+  minStay?: number
+  maxStay?: number
+  minPax?: number
+  maxPax?: number
+  isNonAccommodation?: boolean
+  adultSell?: number
+}
+
+export interface NonAccommodationRate {
+  description: string
+  rateTypeCode: string
+  cost: number
+  sell: number
+  released: boolean
+  childCost?: number
+  validFrom: string
+  validTo: string
+  notes?: string
+  isDriverGuide?: boolean
+}
+
+export interface ParkFeeChildBracket {
+  ageFrom: number
+  ageTo: number
+  amount: number
+}
+
+export interface ParkFee {
+  name: string
+  parentMealBasis: string
+  adultAmount: number
+  childBrackets: ParkFeeChildBracket[]
+  validFrom: string
+  validTo: string
+}
+
+export interface FestiveChildBracket {
+  ageFrom: number
+  ageTo: number
+  amount: number
+}
+
+export interface FestiveTerm {
+  type: 'christmas' | 'new_year' | 'gala' | 'other'
+  adultAmount: number
+  childAmount?: number
+  childBrackets?: FestiveChildBracket[]
+  validFrom: string
+  validTo: string
+  mandatory: boolean
+  verbatimText: string
+  needsClarification?: boolean
+}
+
+export interface ContractConstraint {
+  minStay?: number
+  maxStay?: number
+  minPax?: number
+  maxPax?: number
+  dateBandFrom?: string
+  dateBandTo?: string
+  scope?: string
+}
+
+export interface CrossCheck {
+  id: string
+  section: string
+  field: string
+  formValue: string
+  pdfValue: string
+  rateRef?: string
+}
+
+export interface ContractCurrency {
+  code: string
+  isPrimary: boolean
 }
 
 export interface ExtractedPolicy {
@@ -48,6 +128,12 @@ export interface ExtractionResult {
   properties: string[]
   rates: ExtractedRate[]
   policies: ExtractedPolicy[]
+  nonAccommodationRates?: NonAccommodationRate[]
+  parkFees?: ParkFee[]
+  festiveTerms?: FestiveTerm[]
+  contractConstraints?: ContractConstraint[]
+  crossChecks?: CrossCheck[]
+  currencies?: ContractCurrency[]
 }
 
 export interface ExtractionBatchResult {
@@ -119,6 +205,8 @@ export interface BatchSessionContext {
   primaryPeId: number
   batchPeIds: number[]
   extractionsByPeId: Record<number, ExtractionResult>
+  /** When set, batch ZIP only exports suppliers that completed interactive review. */
+  reviewedPeIds?: number[]
 }
 
 export interface CompletedSupplierExport {
@@ -161,13 +249,19 @@ export interface PEService {
   code: string
 }
 
+export type ServiceBucket = 'accommodation' | 'non_accommodation' | 'extras'
+
 export interface ServiceMatch {
   extractedName: string
   peServiceId: number | null
   peServiceName: string | null
   peServiceCode: string | null
-  status: 'matched' | 'needs_creation' | 'multiple_matches'
+  status: 'matched' | 'needs_creation' | 'multiple_matches' | 'unused'
   candidates: PEService[]
+  bucket?: ServiceBucket
+  rateRecordKey?: string
+  /** Present when status is multiple_matches from a fuzzy (non-strict) token match. */
+  matchConfidence?: 'strict' | 'fuzzy'
 }
 
 export interface PriorRate {
@@ -181,6 +275,8 @@ export interface PriorRate {
 }
 
 export interface Mismatch {
+  id: string
+  section: string
   field: string
   formValue: string
   pdfValue: string
@@ -190,6 +286,7 @@ export interface Mismatch {
 }
 
 export interface MismatchResolution {
+  id: string
   field: string
   chosenValue: string
   resolution: 'use_form' | 'use_pdf' | 'other'
@@ -201,63 +298,76 @@ export interface ConfirmedPolicy {
   confirmed: boolean
 }
 
+export type ExtrasInternalRowType =
+  | 'child_sharing'
+  | 'infant_sharing'
+  | 'additional_adult'
+  | 'additional_child'
+  | 'extra_bed'
+  | 'festive'
+  | 'park_fee'
+  | 'other'
+
 export interface RateRow {
   supplierName: string
   supplierId: number
   supplierCode: string
-  service: string
+  serviceName: string
   serviceId: number
   serviceCode: string
-  validFrom: string
-  validTo: string
-  agentGroupId: 0
+  dateFrom: string
+  dateTo: string
+  agentGroupId: number
   rateCode: string
   rateName: string
   ratePlan: string
-  currencyBuy: 'USD'
-  currencySell: 'USD'
+  currencyCode: string
   adultBuy: number
   adultSell: number
   childCost: number
   childSell: number
-  markup: 0
+  markup: number
   minPax: number
   maxPax: number
   minStay: number
   maxStay: number
-  api: true
-  isActive: true
+  api: boolean
   isException: boolean
+  businessModel: string
+  supplierCommission: number
+  isNonAccommodation?: boolean
 }
 
 export interface ExtrasRow {
   supplierName: string
-  supplierId: number
   supplierCode: string
-  service: string
-  serviceId: number
-  serviceCode: string
-  validFrom: string
-  validTo: string
-  agentGroupId: 0
+  supplierId: number
+  parentServiceName: string
+  parentServiceCode: string
+  parentServiceId: number
+  extraType: string
+  extraName: string
+  dateFrom: string
+  dateTo: string
+  agentGroupId: number
   rateCode: string
   rateName: string
-  currencyBuy: 'USD'
-  currencySell: 'USD'
-  adultBuy: number
-  adultSell: number
-  childCost: number
-  childSell: number
-  markup: 0
-  minPax: number
-  maxPax: number
-  minStay: number
-  maxStay: number
-  api: true
-  isActive: true
-  isException: boolean
-  extraCategory: string
-  priceType: 'per_person' | 'per_unit'
+  currency: string
+  cost: number | null
+  sell: number | null
+  pricePercent: number | null
+  taxCode: string
+  childOnly: boolean
+  infantOnly: boolean
+  markup: boolean
+  discount: boolean
+  mandatory: boolean
+  noReport: boolean
+  commission: boolean
+  capacityChange: boolean
+  percentFromChildPrice: boolean
+  noVoucher: boolean
+  internalRowType: ExtrasInternalRowType
 }
 
 export type ValidationSeverity = 'stop' | 'needs_creation' | 'rate_change' | 'info'
@@ -268,6 +378,19 @@ export interface ValidationFlag {
   message: string
   affectedService?: string
   details?: string
+}
+
+export interface ValidationNote {
+  itemType: string
+  serviceName: string
+  issue: string
+  actionRequired: string
+}
+
+export interface ServiceInventoryCounts {
+  accommodation: number
+  nonAccommodation: number
+  extras: number
 }
 
 export interface ParseSession {
@@ -287,6 +410,7 @@ export interface ParseSession {
   outputRows: RateRow[]
   extrasRows: ExtrasRow[]
   validationFlags: ValidationFlag[]
+  inventoryCounts: ServiceInventoryCounts | null
   step: 1 | 2 | 3 | 4 | 5 | 6
   status:
     | 'idle'
@@ -295,6 +419,11 @@ export interface ParseSession {
     | 'awaiting_supplier_selection'
     | 'awaiting_confirmation'
     | 'awaiting_mismatch'
+    | 'awaiting_service_match'
+    | 'awaiting_currency'
+    | 'awaiting_no_accommodation'
+    | 'awaiting_child_sharing'
+    | 'awaiting_festive'
     | 'complete'
     | 'blocked'
 }
@@ -304,6 +433,7 @@ export interface ExcelResult {
   rateRows: RateRow[]
   extrasRows: ExtrasRow[]
   flags: ValidationFlag[]
+  validationNotes: ValidationNote[]
 }
 
 export interface HistorySession {
@@ -392,6 +522,7 @@ export interface ElectronAPI {
     serviceMatch: (supplierId: number) => Promise<ServiceMatch[]>
     extrasMatch: (supplierId: number) => Promise<ServiceMatch[]>
     policyServiceMatch: (supplierId: number) => Promise<ServiceMatch[]>
+    inventoryCounts: (supplierId: number) => Promise<ServiceInventoryCounts>
     priorRates: (supplierId: number, servicePattern: string) => Promise<PriorRate[]>
   }
   export: {

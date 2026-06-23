@@ -72,6 +72,7 @@ function normalizeRate(raw: unknown, index: number): ExtractedRate {
     rateAmount: asNumber(rate.rateAmount),
     currency: asString(rate.currency, 'USD') || 'USD',
     rateCode: asString(rate.rateCode).toUpperCase(),
+    rateTypeCode: asString(rate.rateTypeCode).toUpperCase() || undefined,
     occupancyRules: asString(rate.occupancyRules),
     childRates: normalizeChildRates(rate.childRates),
     singleSupplement:
@@ -79,7 +80,115 @@ function normalizeRate(raw: unknown, index: number): ExtractedRate {
         ? null
         : asNumber(rate.singleSupplement),
     notes: asString(rate.notes),
+    minStay: rate.minStay == null ? undefined : asNumber(rate.minStay),
+    maxStay: rate.maxStay == null ? undefined : asNumber(rate.maxStay),
+    minPax: rate.minPax == null ? undefined : asNumber(rate.minPax),
+    maxPax: rate.maxPax == null ? undefined : asNumber(rate.maxPax),
+    isNonAccommodation: rate.isNonAccommodation === true,
+    adultSell: rate.adultSell == null ? undefined : asNumber(rate.adultSell),
   }
+}
+
+function normalizeCrossChecks(raw: unknown): ExtractionResult['crossChecks'] {
+  if (!Array.isArray(raw)) return []
+  return raw.map((entry, i) => {
+    const cc = entry as Record<string, unknown>
+    return {
+      id: asString(cc.id, `crosscheck-${i}`),
+      section: asString(cc.section, 'General'),
+      field: asString(cc.field, 'value'),
+      formValue: asString(cc.formValue),
+      pdfValue: asString(cc.pdfValue),
+      rateRef: asString(cc.rateRef) || undefined,
+    }
+  })
+}
+
+function normalizeNonAccommodationRates(raw: unknown): ExtractionResult['nonAccommodationRates'] {
+  if (!Array.isArray(raw)) return []
+  return raw.map((entry) => {
+    const na = entry as Record<string, unknown>
+    return {
+      description: asString(na.description),
+      rateTypeCode: asString(na.rateTypeCode, 'PPPN').toUpperCase(),
+      cost: asNumber(na.cost),
+      sell: asNumber(na.sell, asNumber(na.cost)),
+      released: na.released !== false,
+      childCost: na.childCost == null ? undefined : asNumber(na.childCost),
+      validFrom: normalizeDate(na.validFrom, 'nonAccommodation.validFrom'),
+      validTo: normalizeDate(na.validTo, 'nonAccommodation.validTo'),
+      notes: asString(na.notes),
+      isDriverGuide: na.isDriverGuide === true,
+    }
+  })
+}
+
+function normalizeParkFees(raw: unknown): ExtractionResult['parkFees'] {
+  if (!Array.isArray(raw)) return []
+  return raw.map((entry) => {
+    const pf = entry as Record<string, unknown>
+    const brackets = Array.isArray(pf.childBrackets) ? pf.childBrackets : []
+    return {
+      name: asString(pf.name),
+      parentMealBasis: asString(pf.parentMealBasis, 'GPKG'),
+      adultAmount: asNumber(pf.adultAmount),
+      childBrackets: brackets.map((b) => {
+        const br = b as Record<string, unknown>
+        return {
+          ageFrom: asNumber(br.ageFrom),
+          ageTo: asNumber(br.ageTo),
+          amount: asNumber(br.amount),
+        }
+      }),
+      validFrom: normalizeDate(pf.validFrom, 'parkFee.validFrom'),
+      validTo: normalizeDate(pf.validTo, 'parkFee.validTo'),
+    }
+  })
+}
+
+function normalizeFestiveTerms(raw: unknown): ExtractionResult['festiveTerms'] {
+  if (!Array.isArray(raw)) return []
+  return raw.map((entry) => {
+    const ft = entry as Record<string, unknown>
+    const type = asString(ft.type, 'other') as 'christmas' | 'new_year' | 'gala' | 'other'
+    return {
+      type,
+      adultAmount: asNumber(ft.adultAmount),
+      childAmount: ft.childAmount == null ? undefined : asNumber(ft.childAmount),
+      validFrom: normalizeDate(ft.validFrom, 'festive.validFrom'),
+      validTo: normalizeDate(ft.validTo, 'festive.validTo'),
+      mandatory: ft.mandatory !== false,
+      verbatimText: asString(ft.verbatimText),
+      needsClarification: ft.needsClarification === true,
+    }
+  })
+}
+
+function normalizeContractConstraints(raw: unknown): ExtractionResult['contractConstraints'] {
+  if (!Array.isArray(raw)) return []
+  return raw.map((entry) => {
+    const c = entry as Record<string, unknown>
+    return {
+      minStay: c.minStay == null ? undefined : asNumber(c.minStay),
+      maxStay: c.maxStay == null ? undefined : asNumber(c.maxStay),
+      minPax: c.minPax == null ? undefined : asNumber(c.minPax),
+      maxPax: c.maxPax == null ? undefined : asNumber(c.maxPax),
+      dateBandFrom: c.dateBandFrom == null ? undefined : normalizeDate(c.dateBandFrom, 'constraint.dateBandFrom'),
+      dateBandTo: c.dateBandTo == null ? undefined : normalizeDate(c.dateBandTo, 'constraint.dateBandTo'),
+      scope: asString(c.scope) || undefined,
+    }
+  })
+}
+
+function normalizeCurrencies(raw: unknown): ExtractionResult['currencies'] {
+  if (!Array.isArray(raw)) return [{ code: 'USD', isPrimary: true }]
+  return raw.map((entry) => {
+    const c = entry as Record<string, unknown>
+    return {
+      code: asString(c.code, 'USD') || 'USD',
+      isPrimary: c.isPrimary !== false,
+    }
+  })
 }
 
 function normalizePolicy(raw: unknown, index: number): ExtractedPolicy {
@@ -168,6 +277,12 @@ export function normalizeSupplierExtraction(raw: unknown, supplierIndex = 0): Ex
     properties,
     rates: obj.rates.map(normalizeRate),
     policies: obj.policies.map(normalizePolicy),
+    nonAccommodationRates: normalizeNonAccommodationRates(obj.nonAccommodationRates),
+    parkFees: normalizeParkFees(obj.parkFees),
+    festiveTerms: normalizeFestiveTerms(obj.festiveTerms),
+    contractConstraints: normalizeContractConstraints(obj.contractConstraints),
+    crossChecks: normalizeCrossChecks(obj.crossChecks),
+    currencies: normalizeCurrencies(obj.currencies),
   }
 }
 

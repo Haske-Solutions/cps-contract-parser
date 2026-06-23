@@ -12,6 +12,7 @@ import type {
   ExtrasRow,
   ValidationFlag,
   PEService,
+  ServiceInventoryCounts,
 } from '@shared/types'
 
 interface SessionActions {
@@ -29,8 +30,10 @@ interface SessionActions {
   updateExtrasMatch: (extractedName: string, candidate: PEService) => void
   updatePolicyMatch: (extractedName: string, candidate: PEService) => void
   setPriorRates: (rates: PriorRate[]) => void
+  setInventoryCounts: (counts: ServiceInventoryCounts | null) => void
   setMismatches: (mismatches: Mismatch[]) => void
-  resolveMismatch: (field: string, resolution: MismatchResolution) => void
+  resolveMismatch: (id: string, resolution: MismatchResolution) => void
+  reopenMismatches: () => void
   setOutputRows: (rows: RateRow[]) => void
   setExtrasRows: (rows: ExtrasRow[]) => void
   setValidationFlags: (flags: ValidationFlag[]) => void
@@ -71,6 +74,7 @@ const initialSession: ParseSession = {
   extrasMatches: [],
   policyMatches: [],
   priorRates: [],
+  inventoryCounts: null,
   mismatches: [],
   mismatchResolutions: [],
   outputRows: [],
@@ -110,19 +114,33 @@ export const useSessionStore = create<ParseSession & SessionActions>((set) => ({
     })),
 
   setPriorRates: (priorRates) => set({ priorRates }),
+  setInventoryCounts: (inventoryCounts) => set({ inventoryCounts }),
   setMismatches: (mismatches) => set({ mismatches }),
 
-  resolveMismatch: (field, resolution) =>
+  resolveMismatch: (id, resolution) =>
     set((state) => ({
       mismatches: state.mismatches.map((m) =>
-        m.field === field
+        m.id === id
           ? { ...m, resolved: true, resolution: resolution.resolution, otherNote: resolution.otherNote }
           : m,
       ),
       mismatchResolutions: [
-        ...state.mismatchResolutions.filter((r) => r.field !== field),
+        ...state.mismatchResolutions.filter((r) => r.id !== id),
         resolution,
       ],
+    })),
+
+  reopenMismatches: () =>
+    set((state) => ({
+      status: 'awaiting_mismatch',
+      mismatches: state.mismatches.map((m) => ({
+        ...m,
+        resolved: state.mismatchResolutions.some((r) => r.id === m.id),
+        resolution:
+          state.mismatchResolutions.find((r) => r.id === m.id)?.resolution ?? m.resolution,
+        otherNote:
+          state.mismatchResolutions.find((r) => r.id === m.id)?.otherNote ?? m.otherNote,
+      })),
     })),
 
   setOutputRows: (outputRows) => set({ outputRows }),
@@ -143,6 +161,7 @@ export const useSessionStore = create<ParseSession & SessionActions>((set) => ({
       extrasMatches: [],
       policyMatches: [],
       priorRates: [],
+      inventoryCounts: null,
       mismatches: [],
       mismatchResolutions: [],
       outputRows: [],

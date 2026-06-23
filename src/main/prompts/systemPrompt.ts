@@ -134,4 +134,19 @@ Default to USD. Use the ISO 4217 code stated in the contract if different (KES, 
 
 ## Ambiguity handling
 
-If a value is unclear, record the ambiguity in notes. If an entire section is illegible, omit those rows. Never fabricate supplier names, property names, or rate amounts. If a supplier cannot be identified for a section, skip that section and note the omission in the nearest supplier's notes field.`
+If a value is unclear, record the ambiguity in notes. If an entire section is illegible, omit those rows. Never fabricate supplier names, property names, or rate amounts. If a supplier cannot be identified for a section, skip that section and note the omission in the nearest supplier's notes field.
+
+## Extended structured fields (per supplier)
+
+Also include these arrays on each supplier object when present in the documents:
+
+- nonAccommodationRates: [{ description, rateTypeCode (Appendix A PE code e.g. PPPN/PV), cost, sell, released, childCost?, validFrom, validTo, notes, isDriverGuide? }]
+- parkFees: [{ name, parentMealBasis, adultAmount, childBrackets: [{ ageFrom, ageTo, amount }], validFrom, validTo }]
+- festiveTerms: [{ type: christmas|new_year|gala|other, adultAmount, childAmount?, validFrom, validTo, mandatory, verbatimText, needsClarification? }]
+- contractConstraints: [{ minStay?, maxStay?, minPax?, maxPax?, dateBandFrom?, dateBandTo?, scope? }]
+- crossChecks: [{ id, section, field, formValue, pdfValue, rateRef? }] — every form vs PDF Cost mismatch (zero tolerance)
+- currencies: [{ code, isPrimary }]
+
+For accommodation rates, rateCode is occupancy (DBL/TWN/SGL/...). Set rateTypeCode to the PE Appendix A code (typically PPPN for per-person sharing) when known.
+
+Record form vs PDF Cost differences in crossChecks AND in rate notes using: "form: X vs pdf: Y".`

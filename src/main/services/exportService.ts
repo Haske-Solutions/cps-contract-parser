@@ -1,125 +1,52 @@
-import * as XLSX from 'xlsx'
+import { lookupRateType, isValidRateTypeCode } from '../../shared/appendixA'
+import {
+  DEFAULT_BUSINESS_MODEL,
+  DEFAULT_SUPPLIER_COMMISSION,
+  OCCUPANCY_CODE_SET,
+} from '../../shared/constants'
+import { resolveBounds } from '../../shared/boundsResolver'
+import { resolveAmount } from '../../shared/mismatchCollector'
+import { enrichPriorRatesWithNew, isHighRateChange } from '../../shared/rateComparison'
+import { validationFlagsToNotes } from '../../shared/validationNotes'
 import type {
   ParseSession,
   RateRow,
   ExtrasRow,
   ValidationFlag,
-  ServiceMatch,
-  MismatchResolution,
+  ValidationNote,
 } from '../../shared/types'
-import {
-  RATE_CODES,
-  RATE_CODE_SET,
-  RATES_COLUMNS,
-  EXTRAS_COLUMNS,
-  MIN_PAX_FALLBACK,
-  MAX_PAX_FALLBACK,
-  MIN_STAY_FALLBACK,
-  MAX_STAY_FALLBACK,
-} from '../../shared/constants'
-import { enrichPriorRatesWithNew, isHighRateChange } from '../../shared/rateComparison'
+import { buildCiorRows } from './ciorCalculator'
 import { getExtractionValidationFlags } from './extractionValidation'
+import { buildExtrasRows } from './extrasEngine'
+import {
+  buildNonAccommodationRows,
+  inferAccommodationRateTypeCode,
+} from './nonAccommodationBuilder'
+import { buildPeWorkbookBuffer } from './peWorkbookWriter'
+import { findMatchForRate } from '../../shared/serviceMatcher'
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function findServiceMatch(
-  name: string,
-  matches: ServiceMatch[],
-): ServiceMatch | undefined {
-  const needle = name.toLowerCase()
-  return (
-    matches.find((m) => m.extractedName.toLowerCase() === needle) ??
-    matches.find(
-      (m) =>
-        m.extractedName.toLowerCase().includes(needle) ||
-        needle.includes(m.extractedName.toLowerCase()),
-    )
-  )
+function sortRateRows(rows: RateRow[]): void {
+  rows.sort((a, b) => {
+    const byAccom = Number(a.isNonAccommodation ?? false) - Number(b.isNonAccommodation ?? false)
+    if (byAccom !== 0) return byAccom
+    const byService = a.serviceName.localeCompare(b.serviceName)
+    if (byService !== 0) return byService
+    const byFrom = a.dateFrom.localeCompare(b.dateFrom)
+    if (byFrom !== 0) return byFrom
+    return a.rateCode.localeCompare(b.rateCode)
+  })
 }
-
-function applyResolution(
-  field: string,
-  defaultValue: string,
-  resolutions: MismatchResolution[],
-): string {
-  const r = resolutions.find((res) => res.field === field)
-  return r ? r.chosenValue : defaultValue
-}
-
-function rateRowToRecord(row: RateRow): Record<string, unknown> {
-  return {
-    'Supplier Name': row.supplierName,
-    'Supplier ID': row.supplierId,
-    'Supplier Code': row.supplierCode,
-    Service: row.service,
-    'Service ID': row.serviceId,
-    'Service Code': row.serviceCode,
-    'Valid From': row.validFrom,
-    'Valid To': row.validTo,
-    'Agent Group ID': row.agentGroupId,
-    'Rate Code': row.rateCode,
-    'Rate Name': row.rateName,
-    'Rate Plan': row.ratePlan,
-    'Currency Buy': row.currencyBuy,
-    'Currency Sell': row.currencySell,
-    'Adult Buy': row.adultBuy,
-    'Adult Sell': row.adultSell,
-    'Child Cost': row.childCost,
-    'Child Sell': row.childSell,
-    Markup: row.markup,
-    'Min Pax': row.minPax,
-    'Max Pax': row.maxPax,
-    'Min Stay': row.minStay,
-    'Max Stay': row.maxStay,
-    API: row.api,
-    'Is Active': row.isActive,
-    'Is Exception': row.isException,
-  }
-}
-
-function extrasRowToRecord(row: ExtrasRow): Record<string, unknown> {
-  return {
-    'Supplier Name': row.supplierName,
-    'Supplier ID': row.supplierId,
-    'Supplier Code': row.supplierCode,
-    Service: row.service,
-    'Service ID': row.serviceId,
-    'Service Code': row.serviceCode,
-    'Valid From': row.validFrom,
-    'Valid To': row.validTo,
-    'Agent Group ID': row.agentGroupId,
-    'Rate Code': row.rateCode,
-    'Rate Name': row.rateName,
-    'Currency Buy': row.currencyBuy,
-    'Currency Sell': row.currencySell,
-    'Adult Buy': row.adultBuy,
-    'Adult Sell': row.adultSell,
-    'Child Cost': row.childCost,
-    'Child Sell': row.childSell,
-    Markup: row.markup,
-    'Min Pax': row.minPax,
-    'Max Pax': row.maxPax,
-    'Min Stay': row.minStay,
-    'Max Stay': row.maxStay,
-    API: row.api,
-    'Is Active': row.isActive,
-    'Is Exception': row.isException,
-    'Extra Category': row.extraCategory,
-    'Price Type': row.priceType,
-    'Business Model': 'cost',
-  }
-}
-
-// ─── Core export logic ────────────────────────────────────────────────────────
 
 export function buildRows(session: ParseSession): {
   rateRows: RateRow[]
   extrasRows: ExtrasRow[]
   flags: ValidationFlag[]
+  validationNotes: ValidationNote[]
 } {
   const rateRows: RateRow[] = []
   const extrasRows: ExtrasRow[] = []
   const flags: ValidationFlag[] = []
+  const validationNotes: ValidationNote[] = []
 
   if (!session.extraction || !session.supplier) {
     flags.push({
@@ -127,56 +54,105 @@ export function buildRows(session: ParseSession): {
       code: 'MISSING_EXTRACTION',
       message: 'No extraction result or supplier — cannot generate rows.',
     })
-    return { rateRows, extrasRows, flags }
+    return { rateRows, extrasRows, flags, validationNotes: validationFlagsToNotes(flags) }
   }
 
-  const { extraction, supplier, serviceMatches, extrasMatches, mismatchResolutions, confirmedPolicies, priorRates: prior } = session
+  const {
+    extraction,
+    supplier,
+    serviceMatches,
+    extrasMatches,
+    mismatchResolutions,
+    confirmedPolicies,
+    priorRates: prior,
+  } = session
 
   flags.push(...getExtractionValidationFlags(extraction))
 
-  const accommodationServiceIds = new Set(
-    serviceMatches.map((m) => m.peServiceId).filter((id): id is number => id !== null),
+  const accommodationMatches = serviceMatches.filter(
+    (m) => m.bucket === 'accommodation' || m.bucket === undefined,
   )
 
-  // ── Build rate rows from extracted rates ──────────────────────────────────
-
   for (const rate of extraction.rates) {
-    // I1: validate rate code
-    if (!RATE_CODE_SET.has(rate.rateCode)) {
+    if (rate.isNonAccommodation) continue
+
+    const occupancy = rate.rateCode.toUpperCase()
+    if (!OCCUPANCY_CODE_SET.has(occupancy) && !isValidRateTypeCode(occupancy)) {
       flags.push({
         severity: 'stop',
-        code: 'INVALID_RATE_CODE',
-        message: `Rate code "${rate.rateCode}" is not in Appendix A.`,
+        code: 'INVALID_OCCUPANCY_CODE',
+        message: `Occupancy code "${rate.rateCode}" is not recognized.`,
         affectedService: rate.propertyName,
-        details: `Room type: ${rate.roomType}. Valid codes: ${[...RATE_CODE_SET].join(', ')}`,
       })
-      continue // I8: skip row rather than emit with invented code
+      continue
     }
 
-    // I2: mismatch resolutions (contract form is authoritative)
-    const validFrom = applyResolution('validFrom', rate.validFrom, mismatchResolutions)
-    const validTo = applyResolution('validTo', rate.validTo, mismatchResolutions)
-    const rateAmount = Number(
-      applyResolution('rateAmount', String(rate.rateAmount), mismatchResolutions),
-    )
-
-    // Service match
-    const match = findServiceMatch(rate.roomType, serviceMatches)
-    if (!match) {
+    const match = findMatchForRate(rate, serviceMatches)
+    if (match?.status === 'needs_creation') {
       flags.push({
         severity: 'needs_creation',
-        code: 'NO_SERVICE_MATCH',
-        message: `No PE service matched for room type "${rate.roomType}".`,
+        code: 'ACCOMMODATION_SERVICE_MISSING',
+        message: `NEEDS CREATION: contract prices '${rate.roomType}' but no matching in-use PE service.`,
         affectedService: `${rate.propertyName} — ${rate.roomType}`,
+        details: `Proposed: ${rate.mealBasis} ${rate.roomType}`,
       })
+      continue
     }
 
-    // I4: min/max from RATE_CODES → fallback constants
-    const rateDef = RATE_CODES.find((r) => r.code === rate.rateCode)
-    const minPax = rateDef?.minPax ?? MIN_PAX_FALLBACK
-    const maxPax = rateDef?.maxPax ?? MAX_PAX_FALLBACK
-    const minStay = rateDef?.minStay ?? MIN_STAY_FALLBACK
-    const maxStay = rateDef?.maxStay ?? MAX_STAY_FALLBACK
+    const rateTypeCode = inferAccommodationRateTypeCode(rate)
+    if (!isValidRateTypeCode(rateTypeCode)) {
+      flags.push({
+        severity: 'stop',
+        code: 'INVALID_RATE_TYPE',
+        message: `Rate type "${rateTypeCode}" is not in Appendix A.`,
+        affectedService: rate.propertyName,
+      })
+      continue
+    }
+
+    const dateFrom = resolveAmount(
+      `accom:${rate.propertyName}:${rate.validFrom}:from`,
+      rate.validFrom,
+      rate.validFrom,
+      mismatchResolutions,
+    )
+    const dateTo = resolveAmount(
+      `accom:${rate.propertyName}:${rate.validTo}:to`,
+      rate.validTo,
+      rate.validTo,
+      mismatchResolutions,
+    )
+    const rateAmount = Number(
+      resolveAmount(
+        `accom:${rate.propertyName}:${rate.validFrom}:amount`,
+        String(rate.rateAmount),
+        String(rate.rateAmount),
+        mismatchResolutions,
+      ),
+    )
+
+    const rateType = lookupRateType(rateTypeCode)!
+    const bounds = resolveBounds({
+      rateTypeCode,
+      contractConstraints: extraction.contractConstraints,
+      validFrom: dateFrom,
+      validTo: dateTo,
+      rateConstraints: {
+        minStay: rate.minStay,
+        maxStay: rate.maxStay,
+        minPax: rate.minPax,
+        maxPax: rate.maxPax,
+      },
+    })
+
+    if (bounds.overrideLogged) {
+      validationNotes.push({
+        itemType: 'Policy Override',
+        serviceName: match?.peServiceName ?? rate.roomType,
+        issue: bounds.overrideLogged,
+        actionRequired: 'Contract value applied to Min/Max fields',
+      })
+    }
 
     const childCost = rate.childRates.length > 0 ? rate.childRates[0].amount : 0
 
@@ -184,186 +160,92 @@ export function buildRows(session: ParseSession): {
       supplierName: supplier.name,
       supplierId: supplier.supplier_id,
       supplierCode: supplier.code,
-      service: match?.peServiceName ?? rate.roomType,
+      serviceName: match?.peServiceName ?? rate.roomType,
       serviceId: match?.peServiceId ?? 0,
       serviceCode: match?.peServiceCode ?? '',
-      validFrom,
-      validTo,
+      dateFrom,
+      dateTo,
       agentGroupId: 0,
-      rateCode: rate.rateCode,
-      rateName: rateDef?.name ?? rate.rateCode,
-      ratePlan: rate.seasonName,
-      currencyBuy: 'USD',
-      currencySell: 'USD',
+      rateCode: rateTypeCode,
+      rateName: rateType.name,
+      ratePlan: rateTypeCode,
+      currencyCode: 'USD',
       adultBuy: rateAmount,
-      adultSell: rateAmount, // invariant: adultSell = adultBuy
+      adultSell: rateAmount,
       childCost,
-      childSell: childCost, // invariant: childSell = childCost
+      childSell: childCost,
       markup: 0,
-      minPax,
-      maxPax,
-      minStay,
-      maxStay,
+      minPax: bounds.minPax,
+      maxPax: bounds.maxPax,
+      minStay: bounds.minStay,
+      maxStay: bounds.maxStay,
       api: true,
-      isActive: true,
       isException: false,
+      businessModel: DEFAULT_BUSINESS_MODEL,
+      supplierCommission: DEFAULT_SUPPLIER_COMMISSION,
     })
   }
 
-  // ── Policy rows (I6) ───────────────────────────────────────────────────────
+  for (const cior of buildCiorRows(extraction, confirmedPolicies)) {
+    const ciorMatch =
+      serviceMatches.find((m) => m.peServiceName?.toUpperCase().includes('CIOR')) ??
+      serviceMatches[0]
+    const rateType = lookupRateType(cior.rateTypeCode) ?? lookupRateType('PPPN')!
 
-  const ciorPolicy = extraction.policies.find((p) => p.type === 'CIOR')
-  const ciorConfirmed = confirmedPolicies.find((cp) => cp.type === 'CIOR')
-  if (ciorPolicy && ciorConfirmed?.confirmed) {
-    // I6: CIOR → accommodation rate row
-    const ciorDef = RATE_CODES.find((r) => r.code === 'CIOR')!
-    const ciorMatch = findServiceMatch('CIOR', serviceMatches) ?? serviceMatches[0]
     rateRows.push({
       supplierName: supplier.name,
       supplierId: supplier.supplier_id,
       supplierCode: supplier.code,
-      service: ciorMatch?.peServiceName ?? 'Child In Own Room',
+      serviceName: ciorMatch?.peServiceName ?? cior.serviceName,
       serviceId: ciorMatch?.peServiceId ?? 0,
       serviceCode: ciorMatch?.peServiceCode ?? '',
-      validFrom: extraction.contractPeriod.from,
-      validTo: extraction.contractPeriod.to,
+      dateFrom: cior.validFrom,
+      dateTo: cior.validTo,
       agentGroupId: 0,
-      rateCode: 'CIOR',
-      rateName: ciorDef.name,
-      ratePlan: 'Policy',
-      currencyBuy: 'USD',
-      currencySell: 'USD',
+      rateCode: cior.rateTypeCode,
+      rateName: rateType.name,
+      ratePlan: cior.rateTypeCode,
+      currencyCode: 'USD',
       adultBuy: 0,
       adultSell: 0,
-      childCost: 0,
-      childSell: 0,
+      childCost: cior.childCost,
+      childSell: cior.childCost,
       markup: 0,
-      minPax: ciorDef.minPax,
-      maxPax: ciorDef.maxPax,
-      minStay: ciorDef.minStay,
-      maxStay: ciorDef.maxStay,
+      minPax: cior.minPax,
+      maxPax: rateType.maxPax,
+      minStay: rateType.minStay,
+      maxStay: rateType.maxStay,
       api: true,
-      isActive: true,
       isException: false,
+      businessModel: DEFAULT_BUSINESS_MODEL,
+      supplierCommission: DEFAULT_SUPPLIER_COMMISSION,
     })
   }
 
-  const childSharingPolicy = extraction.policies.find((p) => p.type === 'children_sharing')
-  const childSharingConfirmed = confirmedPolicies.find((cp) => cp.type === 'children_sharing')
-  if (childSharingPolicy && childSharingConfirmed?.confirmed) {
-    // I6: children_sharing → extras row
-    // I7: check parent accommodation service exists
-    if (accommodationServiceIds.size === 0) {
-      flags.push({
-        severity: 'needs_creation',
-        code: 'CHILD_SHARING_NO_PARENT',
-        message: 'Child-sharing policy cannot be emitted: no matched accommodation service.',
-      })
-    } else {
-      extrasRows.push({
-        supplierName: supplier.name,
-        supplierId: supplier.supplier_id,
-        supplierCode: supplier.code,
-        service: 'Children Sharing',
-        serviceId: extrasMatches[0]?.peServiceId ?? 0,
-        serviceCode: extrasMatches[0]?.peServiceCode ?? '',
-        validFrom: extraction.contractPeriod.from,
-        validTo: extraction.contractPeriod.to,
-        agentGroupId: 0,
-        rateCode: 'CHD',
-        rateName: 'Child',
-        currencyBuy: 'USD',
-        currencySell: 'USD',
-        adultBuy: 0,
-        adultSell: 0,
-        childCost: 0,
-        childSell: 0,
-        markup: 0,
-        minPax: 1,
-        maxPax: 1,
-        minStay: MIN_STAY_FALLBACK,
-        maxStay: MAX_STAY_FALLBACK,
-        api: true,
-        isActive: true,
-        isException: false,
-        extraCategory: 'Child Policy',
-        priceType: 'per_person',
-      })
-    }
-  }
-
-  // ── Extras rows from extras matches (I5, I7) ──────────────────────────────
-
-  for (const extra of extrasMatches) {
-    // I7: extras only if parent accommodation service exists
-    if (accommodationServiceIds.size === 0) {
-      flags.push({
-        severity: 'needs_creation',
-        code: 'EXTRAS_NO_PARENT',
-        message: `Extra service "${extra.extractedName}" has no matched parent accommodation.`,
-        affectedService: extra.extractedName,
-      })
-      continue
-    }
-
-    const isConservancy =
-      extra.extractedName.toLowerCase().includes('conservancy') ||
-      extra.extractedName.toLowerCase().includes('park fee') ||
-      extra.extractedName.toLowerCase().includes('conservation')
-
-    // I5: conservancy rows carry the lodge identity
-    const serviceName = isConservancy
-      ? `${extraction.properties[0] ?? supplier.name} — ${extra.extractedName}`
-      : extra.extractedName
-
-    if (extra.status === 'needs_creation') {
-      flags.push({
-        severity: 'needs_creation',
-        code: 'EXTRA_SERVICE_MISSING',
-        message: `Extra service "${extra.extractedName}" does not exist in PE and needs creation.`,
-        affectedService: extra.extractedName,
-      })
-    }
-
-    extrasRows.push({
-      supplierName: supplier.name,
-      supplierId: supplier.supplier_id,
-      supplierCode: supplier.code,
-      service: serviceName,
-      serviceId: extra.peServiceId ?? 0,
-      serviceCode: extra.peServiceCode ?? '',
-      validFrom: extraction.contractPeriod.from,
-      validTo: extraction.contractPeriod.to,
-      agentGroupId: 0,
-      rateCode: 'CHD',
-      rateName: 'Child',
-      currencyBuy: 'USD',
-      currencySell: 'USD',
-      adultBuy: 0,
-      adultSell: 0,
-      childCost: 0,
-      childSell: 0,
-      markup: 0,
-      minPax: MIN_PAX_FALLBACK,
-      maxPax: MAX_PAX_FALLBACK,
-      minStay: MIN_STAY_FALLBACK,
-      maxStay: MAX_STAY_FALLBACK,
-      api: true,
-      isActive: true,
-      isException: false,
-      extraCategory: isConservancy ? 'Park / Conservancy Fee' : 'Extra',
-      priceType: 'per_person',
-    })
-  }
-
-  // ── Prior rate change flags ────────────────────────────────────────────────
-
-  const enrichedPrior = enrichPriorRatesWithNew(
-    prior,
-    extraction,
-    [...serviceMatches, ...extrasMatches],
+  rateRows.push(
+    ...buildNonAccommodationRows(
+      extraction,
+      supplier,
+      serviceMatches,
+      mismatchResolutions,
+      validationNotes,
+    ),
   )
 
+  extrasRows.push(
+    ...buildExtrasRows(
+      extraction,
+      supplier,
+      accommodationMatches,
+      extrasMatches,
+      confirmedPolicies,
+    ),
+  )
+
+  const enrichedPrior = enrichPriorRatesWithNew(prior, extraction, [
+    ...serviceMatches,
+    ...extrasMatches,
+  ])
   for (const pr of enrichedPrior) {
     if (isHighRateChange(pr)) {
       flags.push({
@@ -376,7 +258,14 @@ export function buildRows(session: ParseSession): {
     }
   }
 
-  // ── Needs-creation service flags ─────────────────────────────────────────
+  if (extrasRows.length === 0 && (extraction.parkFees?.length || extraction.festiveTerms?.length)) {
+    validationNotes.push({
+      itemType: 'Extras',
+      serviceName: supplier.name,
+      issue: 'Extras section omitted — no parent accommodation matches',
+      actionRequired: 'Match accommodation services to generate extras',
+    })
+  }
 
   for (const sm of serviceMatches) {
     if (sm.status === 'needs_creation') {
@@ -389,85 +278,55 @@ export function buildRows(session: ParseSession): {
     }
   }
 
-  // ── Sort rows ─────────────────────────────────────────────────────────────
+  sortRateRows(rateRows)
 
-  rateRows.sort((a, b) => {
-    const byService = a.service.localeCompare(b.service)
-    if (byService !== 0) return byService
-    const byFrom = a.validFrom.localeCompare(b.validFrom)
-    if (byFrom !== 0) return byFrom
-    return a.rateCode.localeCompare(b.rateCode)
-  })
-
-  extrasRows.sort((a, b) => a.service.localeCompare(b.service))
-
-  return { rateRows, extrasRows, flags }
+  const allNotes = [...validationNotes, ...validationFlagsToNotes(flags)]
+  return { rateRows, extrasRows, flags, validationNotes: allNotes }
 }
 
 export function resolveExportRows(session: ParseSession): {
   rateRows: RateRow[]
   extrasRows: ExtrasRow[]
   flags: ValidationFlag[]
+  validationNotes: ValidationNote[]
 } {
   if (session.outputRows.length > 0) {
     return {
       rateRows: session.outputRows,
       extrasRows: session.extrasRows,
       flags: session.validationFlags,
+      validationNotes: validationFlagsToNotes(session.validationFlags),
     }
   }
   return buildRows(session)
 }
 
-export function buildWorkbookBuffer(
+export async function buildWorkbookBuffer(
   rateRows: RateRow[],
   extrasRows: ExtrasRow[],
   flags: ValidationFlag[],
-): ArrayBuffer {
-  const rateRecords = rateRows.map(rateRowToRecord)
-  const extrasRecords = extrasRows.map(extrasRowToRecord)
-
-  const wb = XLSX.utils.book_new()
-
-  const wsRates = XLSX.utils.json_to_sheet(rateRecords, {
-    header: [...RATES_COLUMNS],
-    skipHeader: false,
-  })
-  XLSX.utils.book_append_sheet(wb, wsRates, 'Rates')
-
-  const wsExtras = XLSX.utils.json_to_sheet(extrasRecords, {
-    header: [...EXTRAS_COLUMNS, 'Business Model'],
-    skipHeader: false,
-  })
-  XLSX.utils.book_append_sheet(wb, wsExtras, 'Extras')
-
-  if (flags.length > 0) {
-    const flagRecords = flags.map((f) => ({
-      Severity: f.severity,
-      Code: f.code,
-      Message: f.message,
-      'Affected Service': f.affectedService ?? '',
-      Details: f.details ?? '',
-    }))
-    const wsFlags = XLSX.utils.json_to_sheet(flagRecords)
-    XLSX.utils.book_append_sheet(wb, wsFlags, 'Validation')
-  }
-
-  const buf: Buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
-  const ab = new ArrayBuffer(buf.byteLength)
-  new Uint8Array(ab).set(buf)
-  return ab
+  validationNotes?: ValidationNote[],
+): Promise<ArrayBuffer> {
+  const notes = validationNotes ?? validationFlagsToNotes(flags)
+  return buildPeWorkbookBuffer(rateRows, extrasRows, notes)
 }
 
-export function buildWorkbookFromEditedRows(
+export async function buildWorkbookFromEditedRows(
   rateRows: RateRow[],
   extrasRows: ExtrasRow[],
   flags: ValidationFlag[],
-): ArrayBuffer {
+): Promise<ArrayBuffer> {
   return buildWorkbookBuffer(rateRows, extrasRows, flags)
 }
 
-export function generateExcel(session: ParseSession): ArrayBuffer {
-  const { rateRows, extrasRows, flags } = resolveExportRows(session)
-  return buildWorkbookBuffer(rateRows, extrasRows, flags)
+export async function generateExcel(session: ParseSession): Promise<{
+  buffer: ArrayBuffer
+  rateRows: RateRow[]
+  extrasRows: ExtrasRow[]
+  flags: ValidationFlag[]
+  validationNotes: ValidationNote[]
+}> {
+  const { rateRows, extrasRows, flags, validationNotes } = resolveExportRows(session)
+  const buffer = await buildWorkbookBuffer(rateRows, extrasRows, flags, validationNotes)
+  return { buffer, rateRows, extrasRows, flags, validationNotes }
 }

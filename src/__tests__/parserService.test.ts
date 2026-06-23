@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { parseClaudeResponseText, extractRates, extractRatesForMappings } from '../main/services/parserService'
 import { baseExtraction } from './fixtures'
+import { resolveParserProxyConfig, extractViaProxy } from '../main/services/parserProxyClient'
 
 const mockSend = vi.fn()
 
@@ -336,5 +337,48 @@ describe('extractRatesForMappings', () => {
         peCatalog.map((s) => ({ peSupplierId: s.supplier_id })),
       ),
     ).rejects.toThrow(/at most 5 properties/i)
+  })
+
+  it('uses serial extraction when parser proxy is configured', async () => {
+    vi.mocked(resolveParserProxyConfig).mockResolvedValue({
+      url: 'https://proxy.example',
+      apiKey: 'test-key',
+    })
+
+    let callCount = 0
+    let inFlight = 0
+    let maxInFlight = 0
+
+    vi.mocked(extractViaProxy).mockImplementation(async () => {
+      callCount++
+      const id = callCount
+      inFlight++
+      maxInFlight = Math.max(maxInFlight, inFlight)
+      await new Promise((r) => setTimeout(r, 10))
+      inFlight--
+      return {
+        suppliers: [
+          { ...baseExtraction, supplierName: `Camp ${id}`, peSupplierId: id },
+        ],
+      }
+    })
+
+    const peCatalog = [
+      { supplier_id: 1, name: 'Camp 1', code: 'C1', destination_country: 'KE' },
+      { supplier_id: 2, name: 'Camp 2', code: 'C2', destination_country: 'KE' },
+    ]
+
+    const result = await extractRatesForMappings(
+      new Uint8Array([1]),
+      new Uint8Array([2]),
+      peCatalog,
+      [{ peSupplierId: 1 }, { peSupplierId: 2 }],
+    )
+
+    expect(maxInFlight).toBeLessThanOrEqual(1)
+    expect(extractViaProxy).toHaveBeenCalledTimes(2)
+    expect(Object.keys(result)).toHaveLength(2)
+    vi.mocked(resolveParserProxyConfig).mockResolvedValue(null)
+    vi.mocked(extractViaProxy).mockReset()
   })
 })

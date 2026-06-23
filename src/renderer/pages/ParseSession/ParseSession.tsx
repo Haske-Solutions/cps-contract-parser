@@ -50,7 +50,13 @@ import {
   includedMappingsInOrder,
 } from '@shared/supplierMatching'
 import { anchorTermFromFilenames, catalogAnchorTermsFromFilenames, deriveSupplierSearchTerm } from '@shared/supplierSearch'
+import { InventorySummary } from '../../components/InventorySummary/InventorySummary'
+import { CurrencyConfirmGate } from '../../components/HITL/CurrencyConfirmGate'
+import { NoAccommodationGate } from '../../components/HITL/NoAccommodationGate'
+import { ChildSharingClarifyGate } from '../../components/HITL/ChildSharingClarifyGate'
+import { FestiveClarifyGate } from '../../components/HITL/FestiveClarifyGate'
 import { detectMismatches } from '../../lib/mismatchDetection'
+import { matchAccommodationRates } from '@shared/serviceMatcher'
 import { enrichPriorRatesWithNew, computeRateChangeServiceIds } from '../../lib/rateComparison'
 import { LOADING_MESSAGES } from '../../lib/parseFlow'
 import { MAX_PROPERTIES_PER_RUN, PARSER_PROXY_TIMEOUT_MS } from '@shared/constants'
@@ -94,6 +100,11 @@ export function ParseSession() {
   const [mappingGroups, setMappingGroups] = useState<PropertyMappingGroup[]>([])
   const [unmatchedPeSuppliers, setUnmatchedPeSuppliers] = useState<Supplier[]>([])
   const [showMismatchGate, setShowMismatchGate] = useState(false)
+  const [mismatchReviewMode, setMismatchReviewMode] = useState<'initial' | 'review'>('initial')
+  const [showCurrencyGate, setShowCurrencyGate] = useState(false)
+  const [showNoAccommodationGate, setShowNoAccommodationGate] = useState(false)
+  const [showChildSharingGate, setShowChildSharingGate] = useState(false)
+  const [showFestiveGate, setShowFestiveGate] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [isBatchGenerating, setIsBatchGenerating] = useState(false)
@@ -600,16 +611,36 @@ export function ParseSession() {
     try {
       await window.electronAPI.parser.confirmPolicies(store.id, store.confirmedPolicies)
 
-      const [serviceMatches, extrasMatches, policySvcMatches] = await Promise.all([
+      const [catalog, extrasMatches, policySvcMatches, counts] = await Promise.all([
         window.electronAPI.warehouse.serviceMatch(store.supplier.supplier_id),
         window.electronAPI.warehouse.extrasMatch(store.supplier.supplier_id),
         window.electronAPI.warehouse.policyServiceMatch(store.supplier.supplier_id),
+        window.electronAPI.warehouse.inventoryCounts(store.supplier.supplier_id),
       ])
 
-      store.setServiceMatches(serviceMatches)
+      const peServices = catalog
+        .filter((m) => m.peServiceId != null && m.peServiceName && m.peServiceCode)
+        .map((m) => ({
+          id: m.peServiceId!,
+          name: m.peServiceName!,
+          code: m.peServiceCode!,
+        }))
+
+      const tokenMatches =
+        store.extraction && peServices.length > 0
+          ? matchAccommodationRates(store.extraction.rates, peServices)
+          : catalog
+
+      store.setInventoryCounts(counts)
+      store.setServiceMatches(tokenMatches)
       store.setPolicyMatches(policySvcMatches)
       store.setExtrasMatches(extrasMatches)
-      store.setStatus('idle')
+
+      if (tokenMatches.some((m) => m.status === 'multiple_matches')) {
+        store.setStatus('awaiting_service_match')
+      } else {
+        store.setStatus('idle')
+      }
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : 'Service matching failed')
       store.setStatus('blocked')
@@ -649,8 +680,75 @@ export function ParseSession() {
   }, [store])
 
   const handleContinueFromStep3 = useCallback(async () => {
+    const pendingAccommodation = store.serviceMatches.filter(
+      (m) => m.status === 'multiple_matches',
+    )
+    if (pendingAccommodation.length > 0) {
+      store.setStatus('awaiting_service_match')
+      const msg =
+        pendingAccommodation.length === 1
+          ? 'Select a PE service for the pending accommodation row before continuing.'
+          : `Select PE services for ${pendingAccommodation.length} pending accommodation rows before continuing.`
+      setErrorMessage(msg)
+      toast.error(msg)
+      return
+    }
+
+    const pendingExtras = store.extrasMatches.filter((m) => m.status === 'multiple_matches')
+    if (pendingExtras.length > 0) {
+      store.setStatus('awaiting_service_match')
+      const msg =
+        pendingExtras.length === 1
+          ? 'Select a PE service for the pending extras row before continuing.'
+          : `Select PE services for ${pendingExtras.length} pending extras rows before continuing.`
+      setErrorMessage(msg)
+      toast.error(msg)
+      return
+    }
+
+    const pendingPolicy = store.policyMatches.filter((m) => m.status === 'multiple_matches')
+    if (pendingPolicy.length > 0) {
+      store.setStatus('awaiting_service_match')
+      const msg =
+        pendingPolicy.length === 1
+          ? 'Select a PE service for the pending policy row before continuing.'
+          : `Select PE services for ${pendingPolicy.length} pending policy rows before continuing.`
+      setErrorMessage(msg)
+      toast.error(msg)
+      return
+    }
+
+    const currencies = store.extraction?.currencies?.map((c) => c.code) ?? ['USD']
+    const uniqueCurrencies = [...new Set(currencies)]
+    if (uniqueCurrencies.length > 1) {
+      setShowCurrencyGate(true)
+      return
+    }
+
+    const noAccommodation = !store.serviceMatches.some((m) => m.status === 'matched')
+    if (noAccommodation) {
+      setShowNoAccommodationGate(true)
+      return
+    }
+
+    const childPolicy = store.extraction?.policies.find((p) => p.type === 'children_sharing')
+    if (
+      childPolicy &&
+      (!childPolicy.calculationApplied ||
+        childPolicy.calculationApplied.toLowerCase().includes('ambiguous'))
+    ) {
+      setShowChildSharingGate(true)
+      return
+    }
+
+    const unclearFestive = store.extraction?.festiveTerms?.find((f) => f.needsClarification)
+    if (unclearFestive) {
+      setShowFestiveGate(true)
+      return
+    }
+
     await runPriorRates()
-  }, [runPriorRates])
+  }, [store, runPriorRates])
 
   const proceedToStep5 = useCallback(async () => {
     store.setStep(5)
@@ -695,11 +793,22 @@ export function ParseSession() {
   const handleMismatchResolutions = useCallback(
     async (resolutions: MismatchResolution[]) => {
       setShowMismatchGate(false)
-      resolutions.forEach((r) => store.resolveMismatch(r.field, r))
+      setMismatchReviewMode('initial')
+      resolutions.forEach((r) => store.resolveMismatch(r.id, r))
+      setExcelBuffer(null)
+      store.setOutputRows([])
+      store.setExtrasRows([])
+      store.setValidationFlags([])
       await proceedToStep5()
     },
     [store, proceedToStep5],
   )
+
+  const handleReviewMismatches = useCallback(() => {
+    store.reopenMismatches()
+    setMismatchReviewMode('review')
+    setShowMismatchGate(true)
+  }, [store])
 
   const recordCurrentExport = useCallback(
     (buffer: ArrayBuffer): CompletedSupplierExport | null => {
@@ -1093,6 +1202,15 @@ export function ParseSession() {
           </section>
         )}
 
+        {store.inventoryCounts && store.supplier && (
+          <InventorySummary
+            counts={store.inventoryCounts}
+            supplierName={store.supplier.name}
+            headOffice={store.supplier.head_office_name}
+            destinationCountry={store.supplier.destination_country}
+          />
+        )}
+
         {store.step === 3 && store.status !== 'loading' && (
           <ServiceMatchingPanel
             serviceMatches={store.serviceMatches}
@@ -1116,10 +1234,69 @@ export function ParseSession() {
           />
         )}
 
+        {showCurrencyGate && store.extraction && (
+          <CurrencyConfirmGate
+            currencies={store.extraction.currencies?.map((c) => c.code) ?? ['USD']}
+            onConfirm={() => {
+              setShowCurrencyGate(false)
+              void runPriorRates()
+            }}
+          />
+        )}
+
+        {showNoAccommodationGate && (
+          <NoAccommodationGate
+            onCancel={() => setShowNoAccommodationGate(false)}
+            onConfirm={() => {
+              setShowNoAccommodationGate(false)
+              void runPriorRates()
+            }}
+          />
+        )}
+
+        {showChildSharingGate && (
+          <ChildSharingClarifyGate
+            verbatimText={
+              store.extraction?.policies.find((p) => p.type === 'children_sharing')?.verbatimText ??
+              ''
+            }
+            onConfirm={() => {
+              setShowChildSharingGate(false)
+              void runPriorRates()
+            }}
+          />
+        )}
+
+        {showFestiveGate && (
+          <FestiveClarifyGate
+            verbatimText={
+              store.extraction?.festiveTerms?.find((f) => f.needsClarification)?.verbatimText ?? ''
+            }
+            onConfirm={() => {
+              setShowFestiveGate(false)
+              void runPriorRates()
+            }}
+          />
+        )}
+
         {showMismatchGate && store.mismatches.length > 0 && (
           <MismatchGate
             mismatches={store.mismatches}
+            existingResolutions={store.mismatchResolutions}
             onResolveAll={handleMismatchResolutions}
+            onCancel={
+              mismatchReviewMode === 'review'
+                ? () => {
+                    setShowMismatchGate(false)
+                    setMismatchReviewMode('initial')
+                  }
+                : undefined
+            }
+            submitLabel={
+              mismatchReviewMode === 'review'
+                ? 'Apply & Regenerate Workbook'
+                : 'Apply Resolutions & Continue'
+            }
           />
         )}
 
@@ -1144,6 +1321,17 @@ export function ParseSession() {
                       ? `${store.validationFlags.length} flag${store.validationFlags.length !== 1 ? 's' : ''}`
                       : 'No issues'}
                   </Badge>
+                  {store.mismatches.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleReviewMismatches}
+                      disabled={isGenerating}
+                    >
+                      Review mismatch decisions
+                    </Button>
+                  )}
                 </div>
               </div>
             )}

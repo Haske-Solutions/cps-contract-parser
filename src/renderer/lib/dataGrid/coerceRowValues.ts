@@ -16,9 +16,10 @@ const RATE_NUMERIC_KEYS = new Set([
   'serviceId',
   'agentGroupId',
   'markup',
+  'supplierCommission',
 ])
 
-const EXTRAS_NUMERIC_KEYS = RATE_NUMERIC_KEYS
+const EXTRAS_NUMERIC_KEYS = new Set(['cost', 'sell', 'pricePercent', 'supplierId', 'parentServiceId', 'agentGroupId'])
 
 const EXTRACTED_NUMERIC_KEYS = new Set(['rateAmount', 'singleSupplement'])
 
@@ -30,6 +31,9 @@ export function coerceRateRow(
   const value = row[key]
   if (key === 'isException' && typeof value === 'string') {
     return { ...row, isException: parseBooleanInput(value) }
+  }
+  if (key === 'api' && typeof value === 'string') {
+    return { ...row, api: parseBooleanInput(value) }
   }
   if (RATE_NUMERIC_KEYS.has(columnKey) && typeof value === 'string') {
     return { ...row, [key]: parseNumberInput(value, row[key] as number) }
@@ -43,11 +47,24 @@ export function coerceExtrasRow(
 ): WithGridId<ExtrasRow> {
   const key = columnKey as keyof ExtrasRow
   const value = row[key]
-  if (key === 'isException' && typeof value === 'string') {
-    return { ...row, isException: parseBooleanInput(value) }
+  const boolKeys = new Set([
+    'childOnly',
+    'infantOnly',
+    'markup',
+    'discount',
+    'mandatory',
+    'noReport',
+    'commission',
+    'capacityChange',
+    'percentFromChildPrice',
+    'noVoucher',
+  ])
+  if (boolKeys.has(columnKey) && typeof value === 'string') {
+    return { ...row, [key]: parseBooleanInput(value) as ExtrasRow[keyof ExtrasRow] }
   }
   if (EXTRAS_NUMERIC_KEYS.has(columnKey) && typeof value === 'string') {
-    return { ...row, [key]: parseNumberInput(value, row[key] as number) }
+    const fallback = typeof row[key] === 'number' ? (row[key] as number) : 0
+    return { ...row, [key]: parseNumberInput(value, fallback) }
   }
   return row
 }

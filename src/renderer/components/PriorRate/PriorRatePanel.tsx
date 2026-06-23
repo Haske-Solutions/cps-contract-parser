@@ -46,8 +46,8 @@ export function PriorRatePanel({ priorRates, onPriorRatesChange, onContinue }: P
           Prior Year Rate Comparison
         </h2>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Click cells to edit service names and prior rates. Use Add row / Delete row to adjust the
-          table. New rate and % change update from extracted rates.
+          Select rows with checkboxes to delete in bulk. Click cells to edit service names and prior
+          rates. New rate and % change update from extracted rates.
         </p>
       </div>
 

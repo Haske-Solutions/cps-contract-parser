@@ -1,8 +1,18 @@
 import type { Column, RenderCellProps } from 'react-data-grid'
 import type { ExtractedRate, ExtrasRow, RateRow, ServiceMatch } from '@shared/types'
-import { RATES_COLUMNS, EXTRAS_COLUMNS, RATE_CHANGE_THRESHOLD_PCT } from '@shared/constants'
+import {
+  formatRateRecordKeyLabel,
+  formatRateRecordKeyTooltip,
+  isRateRecordKey,
+} from '@shared/serviceTokenMatcher'
+import { PE_EXTRAS_COLUMNS, PE_RATES_COLUMNS, RATE_CHANGE_THRESHOLD_PCT } from '@shared/constants'
 import { isHighRateChange, type PriorRateWithNew } from '@shared/rateComparison'
 import { Badge } from '@/components/ui/badge'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import {
   EXTRACTED_RATE_EDITABLE_KEYS,
   EXTRAS_ROW_EDITABLE_KEYS,
@@ -25,17 +35,16 @@ const RATE_ROW_FIELDS: FieldConfig<RateRow>[] = [
   { key: 'supplierName', name: 'Supplier Name', frozen: true, width: 140 },
   { key: 'supplierId', name: 'Supplier ID', width: 90 },
   { key: 'supplierCode', name: 'Supplier Code', width: 100 },
-  { key: 'service', name: 'Service', width: 160 },
+  { key: 'serviceName', name: 'Service Name', width: 160 },
   { key: 'serviceId', name: 'Service ID', width: 90 },
   { key: 'serviceCode', name: 'Service Code', width: 100 },
-  { key: 'validFrom', name: 'Valid From', editable: true, width: 100 },
-  { key: 'validTo', name: 'Valid To', editable: true, width: 100 },
+  { key: 'dateFrom', name: 'Date From', editable: true, width: 100 },
+  { key: 'dateTo', name: 'Date To', editable: true, width: 100 },
   { key: 'agentGroupId', name: 'Agent Group ID', width: 100 },
   { key: 'rateCode', name: 'Rate Code', editable: true, width: 90 },
   { key: 'rateName', name: 'Rate Name', editable: true, width: 120 },
   { key: 'ratePlan', name: 'Rate Plan', editable: true, width: 100 },
-  { key: 'currencyBuy', name: 'Currency Buy', width: 90 },
-  { key: 'currencySell', name: 'Currency Sell', width: 90 },
+  { key: 'currencyCode', name: 'Currency Code', width: 90 },
   { key: 'adultBuy', name: 'Adult Buy', editable: true, width: 90, mono: true },
   { key: 'adultSell', name: 'Adult Sell', editable: true, width: 90, mono: true },
   { key: 'childCost', name: 'Child Cost', editable: true, width: 90, mono: true },
@@ -46,38 +55,29 @@ const RATE_ROW_FIELDS: FieldConfig<RateRow>[] = [
   { key: 'minStay', name: 'Min Stay', editable: true, width: 70 },
   { key: 'maxStay', name: 'Max Stay', editable: true, width: 70 },
   { key: 'api', name: 'API', width: 60 },
-  { key: 'isActive', name: 'Is Active', width: 80 },
   { key: 'isException', name: 'Is Exception', editable: true, width: 90 },
+  { key: 'businessModel', name: 'Business_Model', width: 100 },
+  { key: 'supplierCommission', name: 'Supplier_Commission', width: 120 },
 ]
 
 const EXTRAS_ROW_FIELDS: FieldConfig<ExtrasRow>[] = [
   { key: 'supplierName', name: 'Supplier Name', frozen: true, width: 140 },
-  { key: 'supplierId', name: 'Supplier ID', width: 90 },
   { key: 'supplierCode', name: 'Supplier Code', width: 100 },
-  { key: 'service', name: 'Service', width: 160 },
-  { key: 'serviceId', name: 'Service ID', width: 90 },
-  { key: 'serviceCode', name: 'Service Code', width: 100 },
-  { key: 'validFrom', name: 'Valid From', editable: true, width: 100 },
-  { key: 'validTo', name: 'Valid To', editable: true, width: 100 },
-  { key: 'agentGroupId', name: 'Agent Group ID', width: 100 },
+  { key: 'supplierId', name: 'Supplier Id', width: 90 },
+  { key: 'parentServiceName', name: 'Service Name', width: 160 },
+  { key: 'parentServiceCode', name: 'Service Code', width: 100 },
+  { key: 'parentServiceId', name: 'Service ID', width: 90 },
+  { key: 'extraType', name: 'Extra Type', width: 90 },
+  { key: 'extraName', name: 'Extra Name', editable: true, width: 180 },
+  { key: 'dateFrom', name: 'Date From', editable: true, width: 100 },
+  { key: 'dateTo', name: 'Date To', editable: true, width: 100 },
   { key: 'rateCode', name: 'Rate Code', editable: true, width: 90 },
-  { key: 'rateName', name: 'Rate Name', editable: true, width: 120 },
-  { key: 'currencyBuy', name: 'Currency Buy', width: 90 },
-  { key: 'currencySell', name: 'Currency Sell', width: 90 },
-  { key: 'adultBuy', name: 'Adult Buy', editable: true, width: 90, mono: true },
-  { key: 'adultSell', name: 'Adult Sell', editable: true, width: 90, mono: true },
-  { key: 'childCost', name: 'Child Cost', editable: true, width: 90, mono: true },
-  { key: 'childSell', name: 'Child Sell', editable: true, width: 90, mono: true },
-  { key: 'markup', name: 'Markup', width: 70 },
-  { key: 'minPax', name: 'Min Pax', editable: true, width: 70 },
-  { key: 'maxPax', name: 'Max Pax', editable: true, width: 70 },
-  { key: 'minStay', name: 'Min Stay', editable: true, width: 70 },
-  { key: 'maxStay', name: 'Max Stay', editable: true, width: 70 },
-  { key: 'api', name: 'API', width: 60 },
-  { key: 'isActive', name: 'Is Active', width: 80 },
-  { key: 'isException', name: 'Is Exception', editable: true, width: 90 },
-  { key: 'extraCategory', name: 'Extra Category', editable: true, width: 130 },
-  { key: 'priceType', name: 'Price Type', editable: true, width: 100 },
+  { key: 'cost', name: 'Cost', editable: true, width: 80, mono: true },
+  { key: 'sell', name: 'Sell', editable: true, width: 80, mono: true },
+  { key: 'pricePercent', name: 'Price Percent', editable: true, width: 100 },
+  { key: 'taxCode', name: 'Tax Code', width: 80 },
+  { key: 'childOnly', name: 'Child Only', width: 80 },
+  { key: 'mandatory', name: 'Mandatory', width: 80 },
 ]
 
 const EXTRACTED_RATE_FIELDS: FieldConfig<ExtractedRate>[] = [
@@ -119,17 +119,39 @@ function buildColumnsFromFields<T extends object>(
 }
 
 export function buildRateRowColumns(): Column<WithGridId<RateRow>>[] {
-  void RATES_COLUMNS
+  void PE_RATES_COLUMNS
   return buildColumnsFromFields(RATE_ROW_FIELDS, RATE_ROW_EDITABLE_KEYS)
 }
 
 export function buildExtrasRowColumns(): Column<WithGridId<ExtrasRow>>[] {
-  void EXTRAS_COLUMNS
+  void PE_EXTRAS_COLUMNS
   return buildColumnsFromFields(EXTRAS_ROW_FIELDS, EXTRAS_ROW_EDITABLE_KEYS)
 }
 
 export function buildExtractedRateColumns(): Column<WithGridId<ExtractedRate>>[] {
   return buildColumnsFromFields(EXTRACTED_RATE_FIELDS, EXTRACTED_RATE_EDITABLE_KEYS)
+}
+
+function ExtractedNameCell({ value }: { value: string }) {
+  const label = formatRateRecordKeyLabel(value)
+  const showTooltip = isRateRecordKey(value)
+
+  const content = (
+    <span className="block whitespace-normal break-words leading-snug py-0.5">
+      {label}
+    </span>
+  )
+
+  if (!showTooltip) return content
+
+  return (
+    <Tooltip>
+      <TooltipTrigger className="block w-full text-left">{content}</TooltipTrigger>
+      <TooltipContent side="right" className="max-w-sm whitespace-pre-line text-xs">
+        {formatRateRecordKeyTooltip(value)}
+      </TooltipContent>
+    </Tooltip>
+  )
 }
 
 export function buildServiceMatchColumns(
@@ -139,15 +161,20 @@ export function buildServiceMatchColumns(
     {
       key: 'extractedName',
       name: 'Extracted Name',
-      width: 180,
+      minWidth: 260,
+      width: 'minmax(260px, 1.4fr)',
       frozen: true,
-      editable: true,
+      editable: (row) => !isRateRecordKey(row.extractedName),
+      cellClass: 'whitespace-normal align-top',
+      renderCell: ({ row }: RenderCellProps<WithGridId<ServiceMatch>>) => (
+        <ExtractedNameCell value={row.extractedName} />
+      ),
     },
     {
       key: 'peServiceName',
       name: 'Matched PE Service',
-      minWidth: 200,
-      width: 'minmax(200px, 1fr)',
+      minWidth: 160,
+      width: 'minmax(160px, 200px)',
       renderCell: ({ row }) => {
         if (row.status === 'multiple_matches' && row.candidates.length > 0) {
           return (
@@ -188,6 +215,7 @@ export function buildServiceMatchColumns(
           matched: 'Matched',
           needs_creation: 'Needs creation',
           multiple_matches: 'Multiple matches',
+          unused: 'Unused',
         }
         return labels[row.status]
       },

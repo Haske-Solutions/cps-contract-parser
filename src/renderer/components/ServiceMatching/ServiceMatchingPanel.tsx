@@ -48,7 +48,8 @@ export function ServiceMatchingPanel({
             PE Service Matching
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Use Add row / Delete row to adjust matches. Click Extracted Name to edit manual entries.
+            Select rows with checkboxes to delete in bulk, or use Add row / Delete selected. Hover an
+            extracted name for full rate details.
           </p>
         </div>
         <div className="flex gap-2">
@@ -113,7 +114,7 @@ function ServiceMatchGrid({
   )
 
   return (
-    <Card className="overflow-hidden">
+    <Card>
       <CardHeader className="pb-2">
         <CardTitle className="text-sm">{title}</CardTitle>
       </CardHeader>
@@ -125,6 +126,7 @@ function ServiceMatchGrid({
           onRowsChange={onRowsChange}
           createEmptyRow={createEmptyRow}
           height={288}
+          rowHeight={44}
           ariaLabel={title}
         />
       </CardContent>

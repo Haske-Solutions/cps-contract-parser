@@ -1,9 +1,23 @@
-import { useMemo, useState } from 'react'
-import DataGrid, { type Column, type RowsChangeData, textEditor } from 'react-data-grid'
+import { useEffect, useMemo, useState } from 'react'
+import DataGrid, {
+  SelectColumn,
+  type Column,
+  type RowsChangeData,
+  textEditor,
+} from 'react-data-grid'
 import { Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import type { WithGridId } from './types'
+
+const COMPACT_SELECT_COLUMN = {
+  ...SelectColumn,
+  width: 30,
+  minWidth: 30,
+  maxWidth: 30,
+  cellClass: 'cp-select-cell',
+  headerCellClass: 'cp-select-cell',
+} satisfies Column<unknown>
 
 interface Props<T> {
   columns: Column<WithGridId<T>>[]
@@ -16,6 +30,8 @@ interface Props<T> {
   className?: string
   height?: number | string
   readOnly?: boolean
+  rowHeight?: number
+  bulkSelect?: boolean
   coerceRow?: (row: WithGridId<T>, columnKey: string) => WithGridId<T>
 }
 
@@ -30,23 +46,17 @@ export function EditableDataGrid<T>({
   className,
   height = 256,
   readOnly = false,
+  rowHeight = 32,
+  bulkSelect,
   coerceRow,
 }: Props<T>) {
   const editable = !readOnly && Boolean(onRowsChange)
+  const enableBulkSelect = bulkSelect ?? editable
   const allowAddRow = editable && Boolean(createEmptyRow)
   const allowDeleteRow = editable
   const showRowToolbar = allowAddRow || allowDeleteRow
   const [selectedRowIdx, setSelectedRowIdx] = useState<number | null>(null)
-
-  const displayColumns = useMemo(() => {
-    if (!editable) {
-      return columns.map((col) => ({ ...col, editable: false }))
-    }
-    return columns.map((col) => {
-      if (!col.editable || col.renderEditCell) return col
-      return { ...col, renderEditCell: textEditor }
-    })
-  }, [columns, editable])
+  const [selectedRowKeys, setSelectedRowKeys] = useState<ReadonlySet<string>>(() => new Set())
 
   const gridRows = useMemo(
     () =>
@@ -56,6 +66,26 @@ export function EditableDataGrid<T>({
       })) as WithGridId<T>[],
     [rows, rowKeyFn],
   )
+
+  useEffect(() => {
+    const validKeys = new Set(gridRows.map((row) => row.__gridId))
+    setSelectedRowKeys((prev) => {
+      const next = new Set([...prev].filter((key) => validKeys.has(key)))
+      return next.size === prev.size ? prev : next
+    })
+  }, [gridRows])
+
+  const displayColumns = useMemo(() => {
+    const mapped = !editable
+      ? columns.map((col) => ({ ...col, editable: false }))
+      : columns.map((col) => {
+          if (!col.editable || col.renderEditCell) return col
+          return { ...col, renderEditCell: textEditor }
+        })
+
+    if (!enableBulkSelect) return mapped
+    return [COMPACT_SELECT_COLUMN as Column<WithGridId<T>>, ...mapped]
+  }, [columns, editable, enableBulkSelect])
 
   const handleRowsChange = (nextRows: WithGridId<T>[], data: RowsChangeData<WithGridId<T>>) => {
     if (!onRowsChange) return
@@ -75,11 +105,29 @@ export function EditableDataGrid<T>({
   }
 
   const handleDeleteRow = () => {
-    if (!onRowsChange || selectedRowIdx === null) return
+    if (!onRowsChange) return
+
+    if (enableBulkSelect && selectedRowKeys.size > 0) {
+      const next = rows.filter((row, index) => {
+        const key = `${rowKeyFn(row, index)}::${index}`
+        return !selectedRowKeys.has(key)
+      })
+      onRowsChange(next)
+      setSelectedRowKeys(new Set())
+      setSelectedRowIdx(null)
+      return
+    }
+
+    if (selectedRowIdx === null) return
     const next = rows.filter((_, index) => index !== selectedRowIdx)
     onRowsChange(next)
     setSelectedRowIdx(null)
   }
+
+  const selectedCount = enableBulkSelect ? selectedRowKeys.size : selectedRowIdx !== null ? 1 : 0
+  const canDelete = enableBulkSelect
+    ? selectedRowKeys.size > 0
+    : selectedRowIdx !== null && rows.length > 0
 
   const mergedRowClass = (row: WithGridId<T>, rowIdx: number) =>
     cn(
@@ -92,9 +140,15 @@ export function EditableDataGrid<T>({
       {showRowToolbar && (
         <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-2 py-1.5">
           <p className="text-[11px] text-muted-foreground">
-            {selectedRowIdx === null && rows.length > 0
-              ? 'Click a row to select it for deletion'
-              : '\u00a0'}
+            {enableBulkSelect
+              ? selectedCount === 0 && rows.length > 0
+                ? 'Select rows with checkboxes to delete in bulk'
+                : selectedCount > 0
+                  ? `${selectedCount} row${selectedCount === 1 ? '' : 's'} selected`
+                  : '\u00a0'
+              : selectedRowIdx === null && rows.length > 0
+                ? 'Click a row to select it for deletion'
+                : '\u00a0'}
           </p>
           <div className="flex items-center gap-2">
             {allowAddRow && (
@@ -110,21 +164,23 @@ export function EditableDataGrid<T>({
                 size="sm"
                 className="h-7 text-xs text-destructive hover:text-destructive"
                 onClick={handleDeleteRow}
-                disabled={selectedRowIdx === null || rows.length === 0}
+                disabled={!canDelete}
               >
                 <Trash2 className="size-3.5" data-icon="inline-start" />
-                Delete row
+                {enableBulkSelect ? `Delete selected (${selectedCount})` : 'Delete row'}
               </Button>
             )}
           </div>
         </div>
       )}
       <DataGrid
-        className={cn('rdg-light text-xs w-full', className)}
+        className={cn('rdg-light cp-data-grid text-xs w-full', className)}
         style={{ blockSize: height }}
         columns={displayColumns}
         rows={gridRows}
         rowKeyGetter={(row) => row.__gridId}
+        selectedRows={enableBulkSelect ? selectedRowKeys : undefined}
+        onSelectedRowsChange={enableBulkSelect ? setSelectedRowKeys : undefined}
         onRowsChange={editable ? handleRowsChange : undefined}
         onCellClick={(args) => {
           const rowIdx = gridRows.findIndex((row) => row.__gridId === args.row.__gridId)
@@ -138,7 +194,7 @@ export function EditableDataGrid<T>({
           if (isEditable) args.selectCell(true)
         }}
         onSelectedCellChange={(args) => setSelectedRowIdx(args.rowIdx)}
-        rowHeight={32}
+        rowHeight={rowHeight}
         headerRowHeight={34}
         rowClass={mergedRowClass}
         aria-label={ariaLabel}

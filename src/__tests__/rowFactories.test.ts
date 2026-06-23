@@ -11,6 +11,7 @@ import {
   MAX_PAX_FALLBACK,
   MIN_STAY_FALLBACK,
   MAX_STAY_FALLBACK,
+  DEFAULT_ACCOMMODATION_RATE_TYPE,
 } from '@shared/constants'
 
 describe('rowFactories', () => {
@@ -39,10 +40,10 @@ describe('rowFactories', () => {
       supplierName: 'Acme Safaris',
       supplierId: 42,
       supplierCode: 'ACM',
-      validFrom: '2026-06-01',
-      validTo: '2027-05-31',
+      dateFrom: '2026-06-01',
+      dateTo: '2027-05-31',
       ratePlan: 'Rack',
-      rateCode: 'DBL',
+      rateCode: 'PPPN',
       minPax: 1,
       maxPax: 4,
     })
@@ -50,13 +51,13 @@ describe('rowFactories', () => {
     expect(row.supplierName).toBe('Acme Safaris')
     expect(row.supplierId).toBe(42)
     expect(row.supplierCode).toBe('ACM')
-    expect(row.validFrom).toBe('2026-06-01')
-    expect(row.validTo).toBe('2027-05-31')
+    expect(row.dateFrom).toBe('2026-06-01')
+    expect(row.dateTo).toBe('2027-05-31')
     expect(row.ratePlan).toBe('Rack')
-    expect(row.rateCode).toBe('DBL')
+    expect(row.rateCode).toBe('PPPN')
     expect(row.minPax).toBe(1)
     expect(row.maxPax).toBe(4)
-    expect(row.service).toBe('')
+    expect(row.serviceName).toBe('')
     expect(row.adultBuy).toBe(0)
   })
 
@@ -67,20 +68,18 @@ describe('rowFactories', () => {
     expect(row.maxPax).toBe(MAX_PAX_FALLBACK)
     expect(row.minStay).toBe(MIN_STAY_FALLBACK)
     expect(row.maxStay).toBe(MAX_STAY_FALLBACK)
-    expect(row.rateCode).toBe('DBL')
+    expect(row.rateCode).toBe(DEFAULT_ACCOMMODATION_RATE_TYPE)
   })
 
-  it('createEmptyExtrasRow copies category defaults from template', () => {
+  it('createEmptyExtrasRow copies extra name from template', () => {
     const row = createEmptyExtrasRow({
       supplierName: 'Acme Safaris',
-      extraCategory: 'Park Fee',
-      priceType: 'per_unit',
+      extraName: 'Park Fee Adult',
     })
 
     expect(row.supplierName).toBe('Acme Safaris')
-    expect(row.extraCategory).toBe('Park Fee')
-    expect(row.priceType).toBe('per_unit')
-    expect(row.rateCode).toBe('CHD')
+    expect(row.extraName).toBe('Park Fee Adult')
+    expect(row.rateCode).toBe('PPPN')
   })
 
   it('createEmptyServiceMatch creates a needs_creation row', () => {

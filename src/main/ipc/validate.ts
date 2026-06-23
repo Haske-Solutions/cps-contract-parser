@@ -169,6 +169,11 @@ export function assertParseSession(value: unknown, field: string): import('../..
     'awaiting_supplier_selection',
     'awaiting_confirmation',
     'awaiting_mismatch',
+    'awaiting_service_match',
+    'awaiting_currency',
+    'awaiting_no_accommodation',
+    'awaiting_child_sharing',
+    'awaiting_festive',
     'complete',
     'blocked',
   ])

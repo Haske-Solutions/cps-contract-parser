@@ -7,6 +7,8 @@ import {
   MIN_STAY_FALLBACK,
   MAX_STAY_FALLBACK,
   RATE_CHANGE_THRESHOLD_PCT,
+  MAX_CONCURRENT_EXTRACTIONS,
+  MAX_CONCURRENT_PROXY_EXTRACTIONS,
 } from '../shared/constants'
 
 describe('RATE_CODES — Appendix A completeness', () => {
@@ -98,4 +100,11 @@ describe('RATE_CODE_SET — reject invalid codes', () => {
       expect(RATE_CODE_SET.has(code)).toBe(false)
     })
   }
+})
+
+describe('Extraction concurrency', () => {
+  it('uses higher concurrency for direct Bedrock than proxy', () => {
+    expect(MAX_CONCURRENT_EXTRACTIONS).toBeGreaterThan(MAX_CONCURRENT_PROXY_EXTRACTIONS)
+    expect(MAX_CONCURRENT_PROXY_EXTRACTIONS).toBe(1)
+  })
 })

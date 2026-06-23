@@ -32,7 +32,9 @@
     "release:major": "npm run test && npm run build && npm version major",
     "release:publish": "git push && git push --tags",
     "dev:server": "npm run dev --prefix server",
-    "start:server": "npm run start --prefix server"
+    "start:server": "npm run start --prefix server",
+    "rebuild:native": "npx @electron/rebuild --force --only keytar,@duckdb/node-api",
+    "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1071.0",
@@ -45,6 +47,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "electron-updater": "^6.6.2",
+    "exceljs": "^4.4.0",
     "keytar": "^7.9.0",
     "lucide-react": "^1.21.0",
     "pdfjs-dist": "^4.9.155",

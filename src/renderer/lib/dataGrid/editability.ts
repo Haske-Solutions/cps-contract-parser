@@ -1,8 +1,8 @@
 import type { ExtractedRate, ExtrasRow, PriorRate, RateRow } from '@shared/types'
 
 export const RATE_ROW_EDITABLE_KEYS = new Set<keyof RateRow>([
-  'validFrom',
-  'validTo',
+  'dateFrom',
+  'dateTo',
   'rateCode',
   'rateName',
   'ratePlan',
@@ -18,21 +18,14 @@ export const RATE_ROW_EDITABLE_KEYS = new Set<keyof RateRow>([
 ])
 
 export const EXTRAS_ROW_EDITABLE_KEYS = new Set<keyof ExtrasRow>([
-  'validFrom',
-  'validTo',
+  'dateFrom',
+  'dateTo',
   'rateCode',
   'rateName',
-  'adultBuy',
-  'adultSell',
-  'childCost',
-  'childSell',
-  'minPax',
-  'maxPax',
-  'minStay',
-  'maxStay',
-  'isException',
-  'extraCategory',
-  'priceType',
+  'extraName',
+  'cost',
+  'sell',
+  'pricePercent',
 ])
 
 export const EXTRACTED_RATE_EDITABLE_KEYS = new Set<keyof ExtractedRate>([

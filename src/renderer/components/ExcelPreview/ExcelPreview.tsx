@@ -15,11 +15,11 @@ import { EditableDataGrid } from '@/lib/dataGrid/EditableDataGrid'
 import { buildRateRowColumns, buildExtrasRowColumns } from '@/lib/dataGrid/columnBuilders'
 import { coerceRateRow, coerceExtrasRow } from '@/lib/dataGrid/coerceRowValues'
 import { createEmptyRateRow, createEmptyExtrasRow } from '@/lib/dataGrid/rowFactories'
-import { rateRowGridId } from '@/lib/dataGrid/types'
+import { rateRowGridId, extrasRowGridId } from '@/lib/dataGrid/types'
 
 export type ExportRowSeed = Partial<Pick<
   RateRow,
-  'supplierName' | 'supplierId' | 'supplierCode' | 'validFrom' | 'validTo' | 'ratePlan' | 'rateCode'
+  'supplierName' | 'supplierId' | 'supplierCode' | 'dateFrom' | 'dateTo' | 'ratePlan' | 'rateCode'
 >>
 
 interface Props {
@@ -80,7 +80,7 @@ export function ExcelPreview({
   }
 
   const extrasRowClass = (row: ExtrasRow) =>
-    rowSurfaceClass(needsCreationServiceIds.has(row.serviceId), false)
+    rowSurfaceClass(needsCreationServiceIds.has(row.parentServiceId), false)
 
   return (
     <section aria-labelledby="excel-preview-heading" className="flex flex-col gap-4">
@@ -90,7 +90,7 @@ export function ExcelPreview({
             Workbook Preview
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Edits apply to the downloaded workbook. Use Add row / Delete row to change each sheet.
+            Select rows with checkboxes to delete in bulk. Edits apply to the downloaded workbook.
           </p>
         </div>
         <Tooltip>
@@ -169,7 +169,7 @@ export function ExcelPreview({
               <EditableDataGrid
                 columns={extrasColumns}
                 rows={extrasRows}
-                rowKeyFn={rateRowGridId}
+                rowKeyFn={extrasRowGridId}
                 onRowsChange={onExtrasRowsChange}
                 createEmptyRow={extrasEditable ? createExtrasRow : undefined}
                 rowClass={extrasRowClass}

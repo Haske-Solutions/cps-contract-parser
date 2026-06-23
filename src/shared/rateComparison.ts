@@ -1,4 +1,5 @@
 import type { ExtractionResult, ExtractedRate, PriorRate, ServiceMatch } from './types'
+import { rateRecordKey } from './serviceTokenMatcher'
 import { RATE_CHANGE_THRESHOLD_PCT } from './constants'
 
 export interface PriorRateWithNew extends PriorRate {
@@ -32,6 +33,11 @@ function findExtractedRateForMatch(
   extraction: ExtractionResult,
   match: ServiceMatch,
 ): ExtractedRate | undefined {
+  if (match.rateRecordKey) {
+    const byKey = extraction.rates.find((rate) => rateRecordKey(rate) === match.rateRecordKey)
+    if (byKey) return byKey
+  }
+
   const names = [match.extractedName, match.peServiceName]
     .filter((name): name is string => Boolean(name))
     .map((name) => name.toLowerCase())

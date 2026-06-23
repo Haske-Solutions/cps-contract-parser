@@ -14,19 +14,30 @@
   border-radius: 0;
 }
 
-/* Opaque sticky header — theme tokens are oklch, not hsl() components */
-.rdg-light .rdg-header-row .rdg-cell,
-.rdg-light .rdg-header-row .rdg-cell-frozen,
+/* Opaque sticky header — stays visible during vertical scroll; frozen headers stay during horizontal scroll */
+.rdg-light .rdg-header-row > .rdg-cell {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background-color: var(--muted) !important;
+  color: var(--muted-foreground);
+  font-weight: 500;
+}
+
+.rdg-light .rdg-header-row > .rdg-cell-frozen {
+  z-index: 3;
+}
+
 .rdg-light [role='columnheader'] {
   background-color: var(--muted) !important;
   color: var(--muted-foreground);
   font-weight: 500;
-  z-index: 2;
 }
 
-.rdg-light .rdg-row .rdg-cell-frozen {
-  background-color: var(--card);
+.rdg-light .rdg-row > .rdg-cell-frozen {
+  position: sticky;
   z-index: 1;
+  background-color: var(--card);
 }
 
 .rdg-light .rdg-row .rdg-cell {
@@ -36,7 +47,8 @@
   padding-inline: 6px;
 }
 
-.rdg-light .rdg-row:hover .rdg-cell {
+.rdg-light .rdg-row:hover .rdg-cell,
+.rdg-light .rdg-row:hover > .rdg-cell-frozen {
   background-color: var(--secondary);
 }
 
@@ -97,4 +109,35 @@
 .rdg-light .rdg-row .rdg-cell.rdg-editor-container {
   padding: 0 !important;
   outline: none !important;
+}
+
+/* Service-matching grids: pin Extracted Name column (header + cells) during horizontal scroll */
+.cp-data-grid .rdg-header-row > .rdg-cell-frozen,
+.cp-data-grid .rdg-row > .rdg-cell-frozen {
+  box-shadow: 2px 0 6px -2px color-mix(in oklch, var(--foreground) 12%, transparent);
+}
+
+/* Compact bulk-select checkboxes — small and vertically aligned */
+.cp-data-grid .cp-select-cell {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding-inline: 0 !important;
+  padding-block: 0 !important;
+}
+
+.cp-data-grid .cp-select-cell .rdg-checkbox-input {
+  inline-size: 13px;
+  block-size: 13px;
+  min-inline-size: 13px;
+  min-block-size: 13px;
+  margin: 0;
+  flex-shrink: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.cp-data-grid .cp-select-cell .rdg-checkbox-input:focus-visible {
+  outline: 1px solid var(--primary);
+  outline-offset: 1px;
 }

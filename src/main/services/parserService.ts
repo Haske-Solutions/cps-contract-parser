@@ -6,7 +6,7 @@ import type {
   SupplierDiscoveryResult,
   ExtractionProgress,
 } from '../../shared/types'
-import { MAX_CONCURRENT_EXTRACTIONS, MAX_PROPERTIES_PER_RUN } from '../../shared/constants'
+import { MAX_CONCURRENT_EXTRACTIONS, MAX_CONCURRENT_PROXY_EXTRACTIONS, MAX_PROPERTIES_PER_RUN } from '../../shared/constants'
 import {
   buildDiscoveryUserText,
   buildExtractionUserText,
@@ -129,6 +129,11 @@ export async function extractRatesForMappings(
   let inFlightCount = 0
   let abortError: Error | null = null
 
+  const proxy = await resolveParserProxyConfig()
+  const concurrency = proxy?.url
+    ? MAX_CONCURRENT_PROXY_EXTRACTIONS
+    : MAX_CONCURRENT_EXTRACTIONS
+
   const reportProgress = (
     peSupplierId: number,
     supplierName: string,
@@ -200,7 +205,7 @@ export async function extractRatesForMappings(
     }
   }
 
-  await mapWithConcurrency(uniqueTargets, MAX_CONCURRENT_EXTRACTIONS, processTarget)
+  await mapWithConcurrency(uniqueTargets, concurrency, processTarget)
 
   if (abortError) {
     throw abortError

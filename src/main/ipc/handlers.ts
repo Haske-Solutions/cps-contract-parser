@@ -28,10 +28,11 @@ import {
   extrasMatch,
   policyServiceMatch,
   priorRates,
+  inventoryCounts,
   testConnection,
 } from '../services/warehouseService'
 import { resetMotherduckConnection } from '../services/motherduckClient'
-import { buildRows, generateExcel, buildWorkbookFromEditedRows } from '../services/exportService'
+import { generateExcel, buildWorkbookFromEditedRows } from '../services/exportService'
 import { generateBatchZip, zipBufferEntries } from '../services/batchExportService'
 import {
   listSessions,
@@ -192,29 +193,38 @@ export function registerHandlers(): void {
     )
   })
 
+  handle('warehouse:inventoryCounts', async (_evt, supplierId: unknown) => {
+    return inventoryCounts(assertNumber(supplierId, 'supplierId'))
+  })
+
   // ── export ────────────────────────────────────────────────────────────────
 
   handle('export:generateExcel', async (_evt, session: unknown) => {
     const s = assertParseSession(session, 'session')
-    const { rateRows, extrasRows, flags } = buildRows(s)
-    const buffer = generateExcel({ ...s, outputRows: rateRows, extrasRows, validationFlags: flags })
+    const result = await generateExcel(s)
     await saveSession({
       ...s,
       step: 6,
       status: 'complete',
-      outputRows: rateRows,
-      extrasRows,
-      validationFlags: flags,
+      outputRows: result.rateRows,
+      extrasRows: result.extrasRows,
+      validationFlags: result.flags,
     })
-    return { buffer: new Uint8Array(buffer), rateRows, extrasRows, flags }
+    return {
+      buffer: new Uint8Array(result.buffer),
+      rateRows: result.rateRows,
+      extrasRows: result.extrasRows,
+      flags: result.flags,
+      validationNotes: result.validationNotes,
+    }
   })
 
-  handle('export:buildWorkbook', (_evt, rateRows: unknown, extrasRows: unknown, flags: unknown) => {
+  handle('export:buildWorkbook', async (_evt, rateRows: unknown, extrasRows: unknown, flags: unknown) => {
     if (!Array.isArray(rateRows)) throw new IpcValidationError('rateRows must be an array.')
     if (!Array.isArray(extrasRows)) throw new IpcValidationError('extrasRows must be an array.')
     if (!Array.isArray(flags)) throw new IpcValidationError('flags must be an array.')
 
-    const buffer = buildWorkbookFromEditedRows(
+    const buffer = await buildWorkbookFromEditedRows(
       rateRows as ParseSession['outputRows'],
       extrasRows as ParseSession['extrasRows'],
       flags as ParseSession['validationFlags'],

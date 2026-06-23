@@ -13,6 +13,7 @@
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1071.0",
     "@aws-sdk/credential-provider-node": "^3.972.57",
+    "electron": "^33.4.11",
     "express": "^4.21.2",
     "express-rate-limit": "^7.5.0",
     "tsx": "^4.19.2"

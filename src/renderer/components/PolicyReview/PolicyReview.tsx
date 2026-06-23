@@ -171,7 +171,7 @@ export function PolicyReview({ extraction, onConfirm, preConfirmed = false }: Pr
           </h3>
           {!preConfirmed && (
             <p className="text-xs text-muted-foreground mt-0.5">
-              Click a cell to edit. Use Add row / Delete row to change the table. Changes are saved
+              Select rows with checkboxes to delete in bulk. Click a cell to edit. Changes are saved
               when you continue to Step 3.
             </p>
           )}

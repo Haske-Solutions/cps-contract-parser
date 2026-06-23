@@ -66,6 +66,8 @@ const api: ElectronAPI = {
       ipcRenderer.invoke('warehouse:policyServiceMatch', supplierId),
     priorRates: (supplierId, servicePattern) =>
       ipcRenderer.invoke('warehouse:priorRates', supplierId, servicePattern),
+    inventoryCounts: (supplierId) =>
+      ipcRenderer.invoke('warehouse:inventoryCounts', supplierId),
   },
   export: {
     generateExcel: (session) => ipcRenderer.invoke('export:generateExcel', session),

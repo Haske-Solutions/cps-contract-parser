@@ -27,7 +27,7 @@ describe('dedupePriorRates', () => {
     ])
 
     expect(deduped).toHaveLength(2)
-    expect(deduped.find((r) => r.serviceName === 'Deluxe Double')?.adultCost).toBe(772)
+    expect(deduped.find((r) => r.serviceName === 'FB Double Deluxe')?.adultCost).toBe(772)
   })
 })
 

@@ -9,14 +9,14 @@ import {
 describe('editability allowlists', () => {
   it('allows editing rate amounts and dates on RateRow', () => {
     expect(isRateRowKeyEditable('adultBuy')).toBe(true)
-    expect(isRateRowKeyEditable('validFrom')).toBe(true)
+    expect(isRateRowKeyEditable('dateFrom')).toBe(true)
     expect(isRateRowKeyEditable('supplierId')).toBe(false)
     expect(isRateRowKeyEditable('api')).toBe(false)
   })
 
   it('includes extras-specific fields', () => {
-    expect(EXTRAS_ROW_EDITABLE_KEYS.has('extraCategory')).toBe(true)
-    expect(EXTRAS_ROW_EDITABLE_KEYS.has('priceType')).toBe(true)
+    expect(EXTRAS_ROW_EDITABLE_KEYS.has('extraName')).toBe(true)
+    expect(EXTRAS_ROW_EDITABLE_KEYS.has('cost')).toBe(true)
     expect(RATE_ROW_EDITABLE_KEYS.has('ratePlan')).toBe(true)
   })
 

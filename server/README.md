@@ -24,6 +24,18 @@ Shared prompt and validation logic lives in the repo root `src/` (imported by `s
 
 All `/v1/*` routes are rate-limited (10 requests/minute per IP).
 
+### Invocation parity (desktop app)
+
+| Capability | Direct Bedrock (no proxy URL) | Parser proxy |
+|------------|-------------------------------|--------------|
+| Supplier discovery | `discoverSuppliers` → Bedrock | `POST /v1/discover` |
+| Single-property extract | `extractRates` → Bedrock | `POST /v1/extract` |
+| Multi-property batch | `extractRatesForMappings` — sequential Bedrock calls (concurrency 2) | Same endpoint per property; **concurrency 1** to avoid rate limits |
+| Extraction progress UI | IPC events (client-side) | IPC events (client-side) |
+| Extraction disk cache | Local `extraction-cache/` | Local `extraction-cache/` |
+
+When a Parser API URL is configured in Settings, the desktop app routes **all** discover/extract calls through the proxy — local AWS credentials are not used.
+
 ### Request bodies
 
 Both `POST` endpoints expect JSON with base64-encoded PDFs:

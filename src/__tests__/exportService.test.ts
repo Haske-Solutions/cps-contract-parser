@@ -16,7 +16,6 @@ import {
   mockCiorPolicy,
   mockConfirmedCior,
   mockPriorRate,
-  mockMismatchResolution,
 } from './fixtures'
 import type { ExtractedRate, ServiceMatch } from '../shared/types'
 import { RATE_CHANGE_THRESHOLD_PCT } from '../shared/constants'
@@ -32,7 +31,7 @@ describe('CIOR rule enforcement', () => {
     })
 
     const { rateRows } = buildRows(session)
-    const ciorRow = rateRows.find((r) => r.rateCode === 'CIOR')
+    const ciorRow = rateRows.find((r) => r.adultBuy === 0 && r.childCost > 0)
 
     expect(ciorRow).toBeDefined()
     expect(ciorRow?.adultBuy).toBe(0)
@@ -47,7 +46,7 @@ describe('CIOR rule enforcement', () => {
     })
 
     const { rateRows } = buildRows(session)
-    const ciorRow = rateRows.find((r) => r.rateCode === 'CIOR')
+    const ciorRow = rateRows.find((r) => r.adultBuy === 0 && r.childCost > 0)
 
     expect(ciorRow).toBeUndefined()
   })
@@ -60,7 +59,7 @@ describe('CIOR rule enforcement', () => {
     })
 
     const { rateRows } = buildRows(session)
-    const ciorRow = rateRows.find((r) => r.rateCode === 'CIOR')
+    const ciorRow = rateRows.find((r) => r.adultBuy === 0 && r.childCost > 0)
 
     expect(ciorRow).toBeUndefined()
   })
@@ -95,7 +94,7 @@ describe('Adult Sell derivation', () => {
     })
 
     const { rateRows } = buildRows(session)
-    const nonCiorRows = rateRows.filter((r) => r.rateCode !== 'CIOR')
+    const nonCiorRows = rateRows.filter((r) => r.adultBuy > 0)
 
     for (const row of nonCiorRows) {
       expect(row.adultSell).toBe(row.adultBuy)
@@ -117,7 +116,7 @@ describe('Rate Code validation', () => {
     })
 
     const { rateRows, flags } = buildRows(session)
-    const stopFlag = flags.find((f) => f.code === 'INVALID_RATE_CODE')
+    const stopFlag = flags.find((f) => f.code === 'INVALID_OCCUPANCY_CODE')
 
     expect(stopFlag).toBeDefined()
     expect(stopFlag?.severity).toBe('stop')
@@ -128,7 +127,7 @@ describe('Rate Code validation', () => {
     const session = buildSession({ serviceMatches: [mockServiceMatch] })
 
     const { flags } = buildRows(session)
-    const stopFlags = flags.filter((f) => f.code === 'INVALID_RATE_CODE')
+    const stopFlags = flags.filter((f) => f.code === 'INVALID_OCCUPANCY_CODE')
 
     expect(stopFlags).toHaveLength(0)
   })
@@ -148,7 +147,7 @@ describe('Rate Code validation', () => {
 
     const { rateRows } = buildRows(session)
 
-    expect(rateRows.some((r) => r.rateCode === 'SGL')).toBe(true)
+    expect(rateRows.some((r) => r.rateCode === 'PPPN')).toBe(true)
     expect(rateRows.some((r) => r.rateCode === 'NOPE')).toBe(false)
   })
 })
@@ -184,8 +183,9 @@ describe('Extras consolidation', () => {
     const { extrasRows } = buildRows(session)
 
     expect(extrasRows).toHaveLength(2)
-    expect(extrasRows.map((r) => r.serviceCode)).toContain('EX001')
-    expect(extrasRows.map((r) => r.serviceCode)).toContain('EX002')
+    expect(extrasRows.map((r) => r.extraName)).toEqual(
+      expect.arrayContaining([expect.stringContaining('Laundry'), expect.stringContaining('Park Fee')]),
+    )
   })
 
   it('skips extras rows when no parent accommodation service exists (I7)', () => {
@@ -194,32 +194,37 @@ describe('Extras consolidation', () => {
       extrasMatches: [mockExtrasMatch, mockExtrasMatch],
     })
 
-    const { extrasRows, flags } = buildRows(session)
+    const { extrasRows } = buildRows(session)
 
     expect(extrasRows).toHaveLength(0)
-    expect(flags.filter((f) => f.code === 'EXTRAS_NO_PARENT')).toHaveLength(2)
   })
 })
 
 // ─── T6: Mismatch resolutions applied ────────────────────────────────────
 
 describe('Mismatch gate — resolutions override extracted values', () => {
-  it('uses the resolved validFrom value from mismatch resolutions', () => {
+  it('uses the resolved dateFrom value from mismatch resolutions', () => {
     const session = buildSession({
       extraction: {
         ...baseExtraction,
         rates: [{ ...mockExtractedRate, validFrom: '2026-01-01' }],
       },
       serviceMatches: [mockServiceMatch],
-      mismatchResolutions: [mockMismatchResolution],
+      mismatchResolutions: [{
+        id: 'accom:Savanna Lodge:2026-01-01:from',
+        field: 'validFrom',
+        chosenValue: '2026-02-01',
+        resolution: 'use_form',
+        otherNote: null,
+      }],
     })
 
     const { rateRows } = buildRows(session)
 
-    expect(rateRows[0]?.validFrom).toBe('2026-02-01')
+    expect(rateRows[0]?.dateFrom).toBe('2026-02-01')
   })
 
-  it('keeps the extracted validFrom when no resolution exists for that field', () => {
+  it('keeps the extracted dateFrom when no resolution exists for that field', () => {
     const session = buildSession({
       extraction: {
         ...baseExtraction,
@@ -231,7 +236,7 @@ describe('Mismatch gate — resolutions override extracted values', () => {
 
     const { rateRows } = buildRows(session)
 
-    expect(rateRows[0]?.validFrom).toBe('2026-03-15')
+    expect(rateRows[0]?.dateFrom).toBe('2026-03-15')
   })
 })
 
@@ -261,46 +266,53 @@ describe('Supplier STOP', () => {
 
 // ─── T8: Min/Max from RATE_CODES ─────────────────────────────────────────
 
-describe('Min/Max values from RATE_CODES', () => {
-  it('assigns minPax=2, maxPax=2 to a DBL row', () => {
+describe('Min/Max values from Appendix A', () => {
+  it('assigns PPPN appendix bounds by default', () => {
     const session = buildSession({
       extraction: { ...baseExtraction, rates: [{ ...mockExtractedRate, rateCode: 'DBL' }] },
       serviceMatches: [mockServiceMatch],
     })
 
     const { rateRows } = buildRows(session)
-    const dblRow = rateRows.find((r) => r.rateCode === 'DBL')
+    const row = rateRows.find((r) => r.rateCode === 'PPPN')
 
-    expect(dblRow?.minPax).toBe(2)
-    expect(dblRow?.maxPax).toBe(2)
-    expect(dblRow?.minStay).toBe(1)
-    expect(dblRow?.maxStay).toBe(99)
+    expect(row?.minPax).toBe(1)
+    expect(row?.maxPax).toBe(99)
+    expect(row?.minStay).toBe(1)
+    expect(row?.maxStay).toBe(99)
   })
 
-  it('assigns minPax=1, maxPax=1 to a SGL row', () => {
+  it('uses contract constraints when provided', () => {
     const session = buildSession({
-      extraction: { ...baseExtraction, rates: [{ ...mockExtractedRate, rateCode: 'SGL' }] },
+      extraction: {
+        ...baseExtraction,
+        rates: [{ ...mockExtractedRate, rateCode: 'SGL', minPax: 1, maxPax: 1 }],
+        contractConstraints: [{ minStay: 3, scope: 'peak' }],
+      },
       serviceMatches: [mockServiceMatch],
     })
 
     const { rateRows } = buildRows(session)
-    const sglRow = rateRows.find((r) => r.rateCode === 'SGL')
+    const row = rateRows[0]
 
-    expect(sglRow?.minPax).toBe(1)
-    expect(sglRow?.maxPax).toBe(1)
+    expect(row?.minPax).toBe(1)
+    expect(row?.maxPax).toBe(1)
+    expect(row?.minStay).toBe(3)
   })
 
-  it('assigns minPax=2, maxPax=6 to a FAM row', () => {
+  it('uses rate-level min/max when set on extraction', () => {
     const session = buildSession({
-      extraction: { ...baseExtraction, rates: [{ ...mockExtractedRate, rateCode: 'FAM' }] },
+      extraction: {
+        ...baseExtraction,
+        rates: [{ ...mockExtractedRate, rateCode: 'FAM', minPax: 2, maxPax: 6 }],
+      },
       serviceMatches: [mockServiceMatch],
     })
 
     const { rateRows } = buildRows(session)
-    const famRow = rateRows.find((r) => r.rateCode === 'FAM')
 
-    expect(famRow?.minPax).toBe(2)
-    expect(famRow?.maxPax).toBe(6)
+    expect(rateRows[0]?.minPax).toBe(2)
+    expect(rateRows[0]?.maxPax).toBe(6)
   })
 })
 
@@ -320,7 +332,7 @@ describe('Infant FOC rows', () => {
     })
 
     const { rateRows } = buildRows(session)
-    const infRow = rateRows.find((r) => r.rateCode === 'INF')
+    const infRow = rateRows.find((r) => r.adultBuy === 0 && r.rateCode === 'PPPN')
 
     expect(infRow).toBeDefined()
     expect(infRow?.adultBuy).toBe(0)
@@ -339,7 +351,7 @@ describe('Infant FOC rows', () => {
     })
 
     const { rateRows } = buildRows(session)
-    const infRow = rateRows.find((r) => r.rateCode === 'INF')
+    const infRow = rateRows.find((r) => r.adultBuy === 0 && r.rateCode === 'PPPN')
 
     expect(infRow?.childCost).toBe(0)
   })
@@ -363,11 +375,11 @@ describe('Conservancy supplier identity', () => {
     })
 
     const { extrasRows } = buildRows(session)
-    const conservancyRow = extrasRows.find((r) => r.serviceCode === 'CF001')
+    const conservancyRow = extrasRows.find((r) => r.extraName.includes('Mara Conservancy'))
 
     expect(conservancyRow).toBeDefined()
-    expect(conservancyRow?.service).toContain('Savanna Lodge')
-    expect(conservancyRow?.service).toContain('Mara Conservancy Fee')
+    expect(conservancyRow?.extraName).toContain('Savanna Lodge')
+    expect(conservancyRow?.extraName).toContain('Mara Conservancy Fee')
   })
 
   it('prefixes lodge name when extra contains "park fee"', () => {
@@ -385,10 +397,10 @@ describe('Conservancy supplier identity', () => {
     })
 
     const { extrasRows } = buildRows(session)
-    const parkRow = extrasRows.find((r) => r.serviceCode === 'PF001')
+    const parkRow = extrasRows.find((r) => r.extraName.includes('National Park'))
 
-    expect(parkRow?.service).toContain('Savanna Lodge')
-    expect(parkRow?.extraCategory).toBe('Park / Conservancy Fee')
+    expect(parkRow?.extraName).toContain('Savanna Lodge')
+    expect(parkRow?.internalRowType).toBe('park_fee')
   })
 
   it('does not prefix lodge name for a regular extra (laundry)', () => {
@@ -399,14 +411,14 @@ describe('Conservancy supplier identity', () => {
 
     const { extrasRows } = buildRows(session)
 
-    expect(extrasRows[0]?.service).toBe('Laundry')
+    expect(extrasRows[0]?.extraName).toContain('Laundry')
   })
 })
 
 // ─── T11: Rate row sort order ─────────────────────────────────────────────
 
 describe('Rate row sort order', () => {
-  it('sorts rate rows by service name A→Z then validFrom ascending', () => {
+  it('sorts rate rows by service name A→Z then dateFrom ascending', () => {
     const zRate: ExtractedRate = {
       ...mockExtractedRate,
       roomType: 'Zebra Suite',
@@ -434,11 +446,11 @@ describe('Rate row sort order', () => {
 
     const { rateRows } = buildRows(session)
 
-    expect(rateRows[0]?.service).toBe('Acacia Room')
-    expect(rateRows[0]?.validFrom).toBe('2026-01-01')
-    expect(rateRows[1]?.service).toBe('Acacia Room')
-    expect(rateRows[1]?.validFrom).toBe('2026-06-01')
-    expect(rateRows[2]?.service).toBe('Zebra Suite')
+    expect(rateRows[0]?.serviceName).toBe('Acacia Room')
+    expect(rateRows[0]?.dateFrom).toBe('2026-01-01')
+    expect(rateRows[1]?.serviceName).toBe('Acacia Room')
+    expect(rateRows[1]?.dateFrom).toBe('2026-06-01')
+    expect(rateRows[2]?.serviceName).toBe('Zebra Suite')
   })
 })
 
@@ -455,8 +467,8 @@ describe('Extras row sort order', () => {
 
     const { extrasRows } = buildRows(session)
 
-    expect(extrasRows[0]?.service).toBe('Acacia Activity')
-    expect(extrasRows[1]?.service).toContain('Zebra Park Fee')
+    expect(extrasRows[0]?.extraName).toContain('Acacia Activity')
+    expect(extrasRows[1]?.extraName).toContain('Zebra Park Fee')
   })
 })
 
@@ -528,24 +540,23 @@ describe('Needs-creation service flags', () => {
 // ─── Additional: generateExcel produces a buffer ──────────────────────────
 
 describe('generateExcel', () => {
-  it('returns a non-empty ArrayBuffer', () => {
+  it('returns a non-empty ArrayBuffer', async () => {
     const session = buildSession({ serviceMatches: [mockServiceMatch] })
-    const buffer = generateExcel(session)
+    const result = await generateExcel(session)
 
-    expect(buffer).toBeInstanceOf(ArrayBuffer)
-    expect(buffer.byteLength).toBeGreaterThan(0)
+    expect(result.buffer.byteLength).toBeGreaterThan(0)
   })
 })
 
 describe('buildWorkbookBuffer', () => {
-  it('serializes edited adultBuy into the Rates sheet', () => {
+  it('serializes edited adultBuy into the Rates sheet', async () => {
     const session = buildSession({ serviceMatches: [mockServiceMatch] })
-    const { rateRows, extrasRows, flags } = buildRows(session)
+    const { rateRows, extrasRows, flags, validationNotes } = buildRows(session)
     const edited = rateRows.map((row, index) =>
       index === 0 ? { ...row, adultBuy: 9999 } : row,
     )
 
-    const buffer = buildWorkbookBuffer(edited, extrasRows, flags)
+    const buffer = await buildWorkbookBuffer(edited, extrasRows, flags, validationNotes)
     const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' })
     const sheet = workbook.Sheets.Rates
     const records = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet)
@@ -553,11 +564,11 @@ describe('buildWorkbookBuffer', () => {
     expect(records[0]?.['Adult Buy']).toBe(9999)
   })
 
-  it('buildWorkbookFromEditedRows matches buildWorkbookBuffer', () => {
+  it('buildWorkbookFromEditedRows matches buildWorkbookBuffer', async () => {
     const session = buildSession({ serviceMatches: [mockServiceMatch] })
     const built = buildRows(session)
-    const a = buildWorkbookBuffer(built.rateRows, built.extrasRows, built.flags)
-    const b = buildWorkbookFromEditedRows(built.rateRows, built.extrasRows, built.flags)
+    const a = await buildWorkbookBuffer(built.rateRows, built.extrasRows, built.flags, built.validationNotes)
+    const b = await buildWorkbookFromEditedRows(built.rateRows, built.extrasRows, built.flags)
     expect(a.byteLength).toBe(b.byteLength)
   })
 })

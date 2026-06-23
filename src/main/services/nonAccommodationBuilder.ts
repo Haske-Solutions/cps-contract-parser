@@ -1,0 +1,111 @@
+import { lookupRateType } from '../../shared/appendixA'
+import { DEFAULT_ACCOMMODATION_RATE_TYPE } from '../../shared/constants'
+import { resolveBounds } from '../../shared/boundsResolver'
+import type {
+  ExtractionResult,
+  MismatchResolution,
+  NonAccommodationRate,
+  RateRow,
+  Supplier,
+  ValidationNote,
+} from '../../shared/types'
+import { resolveAmount } from '../../shared/mismatchCollector'
+
+const PER_PERSON_CODES = new Set(['PPPN', 'PPPD', 'PPPS', 'PPPU', 'PPPI'])
+
+export function isPerPersonRateType(code: string): boolean {
+  return PER_PERSON_CODES.has(code.toUpperCase())
+}
+
+function childCostForNonAccom(rate: NonAccommodationRate, adultBuy: number): number {
+  if (rate.childCost != null) return rate.childCost
+  if (isPerPersonRateType(rate.rateTypeCode)) return adultBuy
+  return 0
+}
+
+export function buildNonAccommodationRows(
+  extraction: ExtractionResult,
+  supplier: Supplier,
+  serviceMatches: { extractedName: string; peServiceId: number | null; peServiceName: string | null; peServiceCode: string | null; status: string }[],
+  mismatchResolutions: MismatchResolution[],
+  validationNotes: ValidationNote[],
+): RateRow[] {
+  const rows: RateRow[] = []
+
+  for (const na of extraction.nonAccommodationRates ?? []) {
+    if (!na.released) {
+      validationNotes.push({
+        itemType: 'Non-Accommodation',
+        serviceName: na.description,
+        issue: `PDF prices '${na.description}' but contract form does not release it`,
+        actionRequired: 'Skipped — not released on contract form',
+      })
+      continue
+    }
+
+    const costStr = String(na.cost)
+    const resolvedCost = Number(
+      resolveAmount(`non-accom:${na.description}:cost`, costStr, costStr, mismatchResolutions),
+    )
+
+    const match =
+      serviceMatches.find((m) => m.extractedName.toLowerCase() === na.description.toLowerCase()) ??
+      serviceMatches.find(
+        (m) =>
+          m.peServiceName?.toLowerCase().includes(na.description.toLowerCase()) ||
+          na.description.toLowerCase().includes(m.extractedName.toLowerCase()),
+      )
+
+    if (match?.status === 'needs_creation') continue
+
+    const rateType = lookupRateType(na.rateTypeCode)
+    const bounds = resolveBounds({
+      rateTypeCode: na.rateTypeCode,
+      contractConstraints: extraction.contractConstraints,
+      validFrom: na.validFrom,
+      validTo: na.validTo,
+    })
+
+    const adultBuy = na.isDriverGuide ? resolvedCost : resolvedCost
+    const adultSell = na.sell
+    const childCost = childCostForNonAccom(na, adultBuy)
+
+    rows.push({
+      supplierName: supplier.name,
+      supplierId: supplier.supplier_id,
+      supplierCode: supplier.code,
+      serviceName: match?.peServiceName ?? na.description,
+      serviceId: match?.peServiceId ?? 0,
+      serviceCode: match?.peServiceCode ?? '',
+      dateFrom: na.validFrom,
+      dateTo: na.validTo,
+      agentGroupId: 0,
+      rateCode: na.rateTypeCode,
+      rateName: rateType?.name ?? na.rateTypeCode,
+      ratePlan: na.rateTypeCode,
+      currencyCode: 'USD',
+      adultBuy,
+      adultSell,
+      childCost,
+      childSell: childCost,
+      markup: 0,
+      minPax: bounds.minPax,
+      maxPax: bounds.maxPax,
+      minStay: bounds.minStay,
+      maxStay: bounds.maxStay,
+      api: true,
+      isException: false,
+      businessModel: 'BM1',
+      supplierCommission: 0,
+      isNonAccommodation: true,
+    })
+  }
+
+  return rows
+}
+
+export function inferAccommodationRateTypeCode(rate: { rateTypeCode?: string; rateCode: string }): string {
+  if (rate.rateTypeCode && lookupRateType(rate.rateTypeCode)) return rate.rateTypeCode.toUpperCase()
+  if (lookupRateType(rate.rateCode)) return rate.rateCode.toUpperCase()
+  return DEFAULT_ACCOMMODATION_RATE_TYPE
+}

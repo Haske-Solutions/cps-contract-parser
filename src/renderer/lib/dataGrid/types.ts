@@ -11,13 +11,25 @@ export function stripGridIds<T>(rows: WithGridId<T>[]): T[] {
   return rows.map(({ __gridId: _id, ...row }) => row as T)
 }
 
+export function extrasRowGridId(
+  row: {
+    parentServiceId: number
+    rateCode: string
+    dateFrom: string
+    extraName: string
+  },
+  index: number,
+): string {
+  return `${row.parentServiceId}-${row.rateCode}-${row.dateFrom}-${row.extraName}-${index}`
+}
+
 export function rateRowGridId(row: {
   serviceId: number
   rateCode: string
-  validFrom: string
-  service: string
+  dateFrom: string
+  serviceName: string
 }, index: number): string {
-  return `${row.serviceId}-${row.rateCode}-${row.validFrom}-${row.service}-${index}`
+  return `${row.serviceId}-${row.rateCode}-${row.dateFrom}-${row.serviceName}-${index}`
 }
 
 export function extractedRateGridId(

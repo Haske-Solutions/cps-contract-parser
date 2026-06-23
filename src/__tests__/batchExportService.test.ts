@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { baseExtraction, mockSupplier, buildSession } from './fixtures'
+import { baseExtraction, extractionWithCrossChecks, mockSupplier, buildSession } from './fixtures'
 import type { BatchSessionContext } from '../shared/types'
 
 vi.mock('../main/services/warehouseService', () => ({
@@ -29,7 +29,12 @@ const mockPriorRates = vi.mocked(priorRates)
 describe('generateBatchZip', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockServiceMatch.mockResolvedValue(buildSession().serviceMatches)
+    mockServiceMatch.mockResolvedValue([
+      {
+        ...buildSession().serviceMatches[0]!,
+        peServiceName: 'FB Double Deluxe',
+      },
+    ])
     mockExtrasMatch.mockResolvedValue([])
     mockPolicyServiceMatch.mockResolvedValue([])
     mockPriorRates.mockResolvedValue([])
@@ -64,6 +69,34 @@ describe('generateBatchZip', () => {
     expect(summaries[0]?.success).toBe(true)
     expect(summaries[0]?.supplierId).toBe(99)
     expect(summaries[0]?.rateRowCount).toBeGreaterThan(0)
+  })
+
+  it('adds batch mismatch warning flags when cross-checks exist', async () => {
+    const batchSupplier = { ...mockSupplier, supplier_id: 99, name: 'Loisaba', code: 'LB01' }
+    const context: BatchSessionContext = {
+      anchorTerm: 'Elewana',
+      mappings: [
+        {
+          peSupplier: batchSupplier,
+          detected: null,
+          matchStatus: 'matched',
+          confidence: 'high',
+          contractFormMatch: true,
+          included: true,
+          isPrimary: false,
+        },
+      ],
+      primaryPeId: mockSupplier.supplier_id,
+      batchPeIds: [99],
+      extractionsByPeId: {
+        99: { ...extractionWithCrossChecks, supplierName: 'Loisaba' },
+      },
+    }
+
+    const { summaries } = await generateBatchZip(context, 'session-1')
+
+    expect(summaries[0]?.success).toBe(true)
+    expect(summaries[0]?.validationFlagCount).toBeGreaterThan(0)
   })
 
   it('reports failure when extraction is missing for a batch supplier', async () => {
