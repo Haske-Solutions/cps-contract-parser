@@ -97,6 +97,18 @@ Release CI uploads `latest*.yml` metadata alongside installers so `electron-upda
 
 Auto-update requires a **packaged install** (not `npm run dev`). macOS unsigned builds may block updates until signing is configured.
 
+### Auto-update 404 on `releases.atom`
+
+`electron-updater` checks `https://github.com/Haske-Solutions/cps-contract-parser/releases.atom`. A **404** almost always means one of:
+
+| Cause | Fix |
+|-------|-----|
+| **Private GitHub repo** | GitHub returns 404 (not 403) without auth. Either make the repo public, publish installers to a public URL (`publish.provider: generic`), or distribute updates manually. |
+| **Tag without GitHub Release** | Pushing `v1.0.x` is not enough — the Release workflow must finish and upload DMG/EXE + `latest*.yml`. Check **Actions → Release** for the tag. |
+| **Wrong owner/repo** | Confirm `electron-builder.yml` `publish.owner` / `publish.repo` match the live repository. |
+
+Private-repo auto-update on end-user machines is not supported without embedding a GitHub token in the app (not recommended). For internal CPS distribution, prefer manual installs from GitHub Releases or a signed internal download URL.
+
 ## Verify native modules after packaging
 
 **Windows** (PowerShell, from repo root after `package:win`):

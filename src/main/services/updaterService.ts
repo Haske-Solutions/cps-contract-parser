@@ -14,6 +14,36 @@ function isUpdaterEnabled(): boolean {
   return process.env.NODE_ENV !== 'development' && app.isPackaged
 }
 
+/** Map GitHub/electron-updater failures to user-facing guidance. */
+function classifyUpdateError(err: unknown): { kind: 'disabled' | 'error'; message: string } {
+  const raw = err instanceof Error ? err.message : String(err)
+  const is404 =
+    raw.includes('404') ||
+    raw.includes('releases.atom') ||
+    /status code\s*404/i.test(raw)
+
+  if (is404) {
+    return {
+      kind: 'disabled',
+      message:
+        'Automatic updates are unavailable. The GitHub release feed could not be reached — ' +
+        'this usually means the repository is private, no GitHub Release has been published yet, ' +
+        'or the installed build points at the wrong repo. Install updates manually from your IT team or GitHub Releases.',
+    }
+  }
+
+  if (/authentication token|401|403/i.test(raw)) {
+    return {
+      kind: 'disabled',
+      message:
+        'Automatic updates require access to the private GitHub release feed. ' +
+        'Install new versions manually until a public update channel is configured.',
+    }
+  }
+
+  return { kind: 'error', message: raw || 'Update check failed' }
+}
+
 function getAutoUpdater(): import('electron-updater').AppUpdater {
   if (!autoUpdater) {
     // Lazy require keeps dev startup fast and avoids bundler edge cases.
@@ -86,8 +116,14 @@ function attachAutoUpdaterEvents(): void {
   })
 
   updater.on('error', (err: Error) => {
+    const classified = classifyUpdateError(err)
+    if (classified.kind === 'disabled') {
+      logger.warn('updater', classified.message)
+      emitStatus({ status: 'disabled', reason: classified.message })
+      return
+    }
     logger.error('updater', 'Auto-update failed', err)
-    emitStatus({ status: 'error', message: err.message })
+    emitStatus({ status: 'error', message: classified.message })
   })
 
   updater.on('update-downloaded', (info) => {
@@ -132,9 +168,13 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
     await getAutoUpdater().checkForUpdates()
     return { ok: true, message: 'Update check complete.' }
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Update check failed'
-    emitStatus({ status: 'error', message })
-    return { ok: false, message }
+    const classified = classifyUpdateError(err)
+    if (classified.kind === 'disabled') {
+      emitStatus({ status: 'disabled', reason: classified.message })
+      return { ok: false, message: classified.message }
+    }
+    emitStatus({ status: 'error', message: classified.message })
+    return { ok: false, message: classified.message }
   }
 }
 

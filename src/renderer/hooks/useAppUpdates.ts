@@ -32,6 +32,8 @@ export function useAppUpdates(options?: { notifyInBackground?: boolean }) {
         case 'error':
           toast.error('Update check failed', { description: status.message })
           break
+        case 'disabled':
+          break
         default:
           break
       }
