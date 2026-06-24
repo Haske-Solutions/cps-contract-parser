@@ -54,7 +54,17 @@ Return ONLY a single valid JSON object — no markdown, no preamble, no trailing
           "interpretation": "string",
           "calculationApplied": "string",
           "peServicesAffected": ["string"],
-          "confirmed": false
+          "confirmed": false,
+          "childBrackets": [
+            {
+              "ageFrom": 12,
+              "ageTo": 17.99,
+              "passengerType": "child",
+              "adultsSharingWith": 1,
+              "percentOfAdult": 50,
+              "flatCost": null
+            }
+          ]
         }
       ]
     }
@@ -93,6 +103,8 @@ I12 — PE ID assignment. Set peSupplierId and peSupplierCode from the reference
 
 I13 — Targeted extraction. When targetPeSupplierId is specified, return exactly one suppliers[] entry for that PE supplier only.
 
+I14 — One base rate per room type per season. For each room type, meal basis, property, and season/date band, extract exactly ONE accommodation rates[] row: the canonical base per-person net rate for 2 adults sharing (PPPN). When the PDF table lists multiple occupancy tiers for the same room (e.g. 1-person single, 2-sharing double, 3-sharing triple), use the lowest quoted per-person net rate for 2 adults sharing. Do NOT emit separate rates[] rows for single supplements, triple/quad tiers, or other occupancy variants under the same roomType — record single supplements in singleSupplement or a single_room policy, triple/quad rules in triple_quad policy, and extra guests in additionalPaxSupplements. Emit a separate row only when the tier corresponds to a distinct PE service (e.g. tiered SGL singles, TRP triple room, FAM/PRPN family villa, CIOR child-in-own-room).
+
 ## Rate code mapping
 
 Double / double occupancy → DBL
@@ -108,10 +120,19 @@ Infant → INF
 Child (generic) → CHD
 Single tiered pricing → SGL1, SGL2, SGL3
 
+## Accommodation rate extraction
+
+Rack & Net rate PDFs often show multiple price columns or rows per room type (1 pax, 2 sharing, 3 sharing, single supplement, etc.). Apply invariant I14 strictly:
+
+- **Default (Double, Twin, Safari Tent, etc.):** One row per room type + meal basis + season. rateCode = DBL or TWN as appropriate. rateTypeCode = PPPN. rateAmount = the net per-person rate for 2 adults sharing (the canonical PPS rate).
+- **Do not extract** every occupancy column as its own rates[] entry when they share the same roomType string.
+- **Distinct PE services only:** Extract separate rows when the contract prices a genuinely different service — e.g. SGL / SGL1 / SGL2 tiered singles, TRP triple, FAM or PRPN family/private-house per-room rate, HON honeymoon, CIOR child-in-own-room.
+- **Omit higher tiers:** If the PDF shows 310 / 430 / 464 / 584 for the same Double Safari Tent mid-season block, 310 is the 2-sharing per-person net rate — emit only that one row. Put other tier amounts in notes if needed for audit, not as separate rates[] rows.
+
 ## Policy types to extract
 
-CIOR — Child In Own Room: age brackets, percentage of adult rate
-children_sharing — Children sharing adult room: age brackets, sharing terms, free night rules
+CIOR — Child In Own Room: age brackets, percentage of adult rate. List affected PE services in peServicesAffected (e.g. "FB CIOR Family Suite"). CIOR accommodation rows always use rate type PPPN — never "Policy" or occupancy codes like CIOR/DBL as the rate plan.
+children_sharing — Children sharing adult room: age brackets, sharing terms, free night rules. Decompose every distinct scenario into childBrackets on the children_sharing policy (see below).
 single_room — Single room supplement / tiered pricing: supplement amount, tiers
 free_child — Free child policy: age bracket, max free children per adult
 age_brackets — Child age brackets used across the contract: age ranges and labels
@@ -123,6 +144,20 @@ For each policy:
 - calculationApplied: the formula or rule (e.g., "50% of DBL rate per child aged 2–11")
 - peServicesAffected: list of service names this policy affects
 - confirmed: always false
+- childBrackets (children_sharing only): one entry per distinct age bracket × adult-count × passenger-type scenario. Split when percentages differ by adult count (e.g. 50% with 1 adult vs 25% with 2 adults → separate rows). Fields:
+  - ageFrom, ageTo: contract age bracket (decimals allowed, e.g. 17.99)
+  - passengerType: "child" or "infant"
+  - adultsSharingWith: 1 or 2 when the rate applies to that adult count only; omit or null when Double/Twin share the same rate for 1 or 2 adults
+  - percentOfAdult: proportional rate as % of parent adult rate (e.g. 50). Omit when flatCost is used
+  - flatCost: flat dollar amount; use 0 for free infants/children. Omit when percentOfAdult is used
+
+Example children_sharing childBrackets for a contract with free under-12s, 50% teen with 1 adult, 25% teen with 2 adults, and free infants:
+[
+  { "ageFrom": 0, "ageTo": 11.99, "passengerType": "child", "flatCost": 0 },
+  { "ageFrom": 12, "ageTo": 17.99, "passengerType": "child", "adultsSharingWith": 1, "percentOfAdult": 50 },
+  { "ageFrom": 12, "ageTo": 17.99, "passengerType": "child", "adultsSharingWith": 2, "percentOfAdult": 25 },
+  { "ageFrom": 0, "ageTo": 4.99, "passengerType": "infant", "flatCost": 0 }
+]
 
 ## Date format
 
@@ -141,6 +176,7 @@ If a value is unclear, record the ambiguity in notes. If an entire section is il
 Also include these arrays on each supplier object when present in the documents:
 
 - nonAccommodationRates: [{ description, rateTypeCode (Appendix A PE code e.g. PPPN/PV), cost, sell, released, childCost?, validFrom, validTo, notes, isDriverGuide? }]
+- additionalPaxSupplements: [{ parentRoomType, mealBasis?, propertyName?, passengerType (adult|child|infant), ageFrom?, ageTo?, flatCost?, percentOfAdult?, validFrom, validTo }] — per-room Family/Private House extra-guest charges; see "Per-room additional pax" below
 - parkFees: [{ name, parentMealBasis, adultAmount, childBrackets: [{ ageFrom, ageTo, amount }], validFrom, validTo }]
 - festiveTerms: [{ type: christmas|new_year|gala|other, adultAmount, childAmount?, validFrom, validTo, mandatory, verbatimText, needsClarification? }]
 - contractConstraints: [{ minStay?, maxStay?, minPax?, maxPax?, dateBandFrom?, dateBandTo?, scope? }]
@@ -148,5 +184,23 @@ Also include these arrays on each supplier object when present in the documents:
 - currencies: [{ code, isPrimary }]
 
 For accommodation rates, rateCode is occupancy (DBL/TWN/SGL/...). Set rateTypeCode to the PE Appendix A code (typically PPPN for per-person sharing) when known.
+
+## Per-room additional pax (Family Tent, Private House, etc.)
+
+For per-room accommodation services (rateTypeCode PRPN, PHPN, or other per-room/per-house codes — not PPPN), the contract often prices the room for a base occupancy and charges each extra guest separately. Extract these as additionalPaxSupplements:
+
+- **When to extract:** Family Tent, Family Suite, Private House, Family Villa, and similar per-room services where the PDF states a per-person charge for guests beyond the base occupancy.
+- **Additional Adult:** The per-person supplement for an extra adult is typically the same dollar amount as the PPPN/PPS adult rate for that meal basis and season. Extract one entry per season/date band with passengerType "adult", flatCost set to that PPPN adult amount, and extraName target "Additional Adult".
+- **Additional Child:** Extract per age bracket when the contract states child supplements (e.g. 50% of PPS). Use passengerType "child" with ageFrom/ageTo; set flatCost or percentOfAdult per the contract footnote.
+- **Fields:** parentRoomType (e.g. "Family Tent"), mealBasis, propertyName?, passengerType (adult|child|infant), ageFrom?, ageTo?, flatCost OR percentOfAdult, validFrom, validTo.
+
+Example additionalPaxSupplements for Family Tent with PPPN adult 464/300/688 across three seasons and a 50% child supplement for ages 12–17.99:
+[
+  { "parentRoomType": "Family Tent", "mealBasis": "FB", "passengerType": "adult", "flatCost": 464, "validFrom": "2026-01-01", "validTo": "2026-03-31" },
+  { "parentRoomType": "Family Tent", "mealBasis": "FB", "passengerType": "adult", "flatCost": 300, "validFrom": "2026-04-01", "validTo": "2026-06-30" },
+  { "parentRoomType": "Family Tent", "mealBasis": "FB", "passengerType": "child", "ageFrom": 12, "ageTo": 17.99, "flatCost": 232, "validFrom": "2026-01-01", "validTo": "2026-03-31" }
+]
+
+These rows attach to the Family/Private House parent accommodation service on the Extras sheet — not the Rates sheet.
 
 Record form vs PDF Cost differences in crossChecks AND in rate notes using: "form: X vs pdf: Y".`

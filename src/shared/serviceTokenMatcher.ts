@@ -180,6 +180,27 @@ export function partialCoverageScore(record: TokenSet, serviceName: string): num
   return covered / required.size
 }
 
+/** How well an extracted rate matches a PE service reference (e.g. CIOR base room lookup). */
+export function scoreServiceRefAgainstRate(serviceRef: string, rate: ExtractedRate): number {
+  const normalizedRef = serviceRef.replace(/\bCIOR\b/gi, ' ').replace(/\s+/g, ' ').trim()
+  if (!normalizedRef) return 1
+
+  const refTokens = tokenizePeServiceName(normalizedRef)
+  const required = requiredTokenSet(refTokens)
+  if (required.size === 0) return 1
+
+  const rateTokens = tokenizeRateRecord(rate)
+  const rateAll = serviceTokenUnion(rateTokens)
+  for (const t of tokenizeText(rate.roomType)) rateAll.add(t)
+  for (const t of tokenizeText(rate.mealBasis)) rateAll.add(t)
+
+  let covered = 0
+  for (const t of required) {
+    if (rateAll.has(t)) covered++
+  }
+  return covered / required.size
+}
+
 export function matchRateToServices(
   rate: ExtractedRate,
   services: PEService[],

@@ -111,6 +111,18 @@ export interface ContractCurrency {
   isPrimary: boolean
 }
 
+export interface ChildSharingBracket {
+  ageFrom: number
+  ageTo: number
+  passengerType: 'child' | 'infant'
+  /** 1 or 2 when the rate applies to that adult-count only; omit when the same on Double/Twin for 1 or 2 adults */
+  adultsSharingWith?: 1 | 2 | null
+  /** Proportional rate as % of parent adult rate (e.g. 50). Omit when flatCost is set */
+  percentOfAdult?: number | null
+  /** Flat dollar amount; use 0 for free. Omit when percentOfAdult is set */
+  flatCost?: number | null
+}
+
 export interface ExtractedPolicy {
   type: 'CIOR' | 'children_sharing' | 'single_room' | 'free_child' | 'age_brackets' | 'triple_quad'
   verbatimText: string
@@ -118,6 +130,23 @@ export interface ExtractedPolicy {
   calculationApplied: string
   peServicesAffected: string[]
   confirmed: boolean
+  /** Decomposed child/infant sharing scenarios for children_sharing policies */
+  childBrackets?: ChildSharingBracket[]
+}
+
+export interface AdditionalPaxSupplement {
+  parentRoomType: string
+  mealBasis?: string
+  propertyName?: string
+  passengerType: 'adult' | 'child' | 'infant'
+  ageFrom?: number
+  ageTo?: number
+  /** Proportional rate as % of parent per-room rate (converted to PE basis). Omit when flatCost is set */
+  percentOfAdult?: number | null
+  /** Flat dollar amount from the contract/PDF. Omit when percentOfAdult is set */
+  flatCost?: number | null
+  validFrom: string
+  validTo: string
 }
 
 export interface ExtractionResult {
@@ -129,6 +158,7 @@ export interface ExtractionResult {
   rates: ExtractedRate[]
   policies: ExtractedPolicy[]
   nonAccommodationRates?: NonAccommodationRate[]
+  additionalPaxSupplements?: AdditionalPaxSupplement[]
   parkFees?: ParkFee[]
   festiveTerms?: FestiveTerm[]
   contractConstraints?: ContractConstraint[]

@@ -1,4 +1,4 @@
-import type { ExtractionResult, ExtractedRate, ExtractedPolicy, ValidationFlag, ExtractionBatchResult } from '../../shared/types'
+import type { ExtractionResult, ExtractedRate, ExtractedPolicy, ChildSharingBracket, AdditionalPaxSupplement, ValidationFlag, ExtractionBatchResult } from '../../shared/types'
 
 const POLICY_TYPES = new Set<ExtractedPolicy['type']>([
   'CIOR',
@@ -191,6 +191,65 @@ function normalizeCurrencies(raw: unknown): ExtractionResult['currencies'] {
   })
 }
 
+function normalizeChildSharingBrackets(raw: unknown): ChildSharingBracket[] {
+  if (!Array.isArray(raw)) return []
+  return raw.map((entry) => {
+    const bracket = entry as Record<string, unknown>
+    const passengerType = asString(bracket.passengerType, 'child')
+    const adultsSharingWithRaw = bracket.adultsSharingWith
+    let adultsSharingWith: ChildSharingBracket['adultsSharingWith'] = null
+    if (adultsSharingWithRaw === 1 || adultsSharingWithRaw === 2) {
+      adultsSharingWith = adultsSharingWithRaw
+    } else if (adultsSharingWithRaw === '1') {
+      adultsSharingWith = 1
+    } else if (adultsSharingWithRaw === '2') {
+      adultsSharingWith = 2
+    }
+
+    return {
+      ageFrom: asNumber(bracket.ageFrom),
+      ageTo: asNumber(bracket.ageTo),
+      passengerType: passengerType === 'infant' ? 'infant' : 'child',
+      adultsSharingWith,
+      percentOfAdult:
+        bracket.percentOfAdult == null || bracket.percentOfAdult === ''
+          ? null
+          : asNumber(bracket.percentOfAdult),
+      flatCost:
+        bracket.flatCost == null || bracket.flatCost === ''
+          ? null
+          : asNumber(bracket.flatCost),
+    }
+  })
+}
+
+function normalizeAdditionalPaxSupplements(raw: unknown): AdditionalPaxSupplement[] {
+  if (!Array.isArray(raw)) return []
+  return raw.map((entry) => {
+    const supplement = entry as Record<string, unknown>
+    const passengerType = asString(supplement.passengerType, 'adult')
+    return {
+      parentRoomType: asString(supplement.parentRoomType),
+      mealBasis: asString(supplement.mealBasis) || undefined,
+      propertyName: asString(supplement.propertyName) || undefined,
+      passengerType:
+        passengerType === 'child' ? 'child' : passengerType === 'infant' ? 'infant' : 'adult',
+      ageFrom: supplement.ageFrom == null ? undefined : asNumber(supplement.ageFrom),
+      ageTo: supplement.ageTo == null ? undefined : asNumber(supplement.ageTo),
+      percentOfAdult:
+        supplement.percentOfAdult == null || supplement.percentOfAdult === ''
+          ? null
+          : asNumber(supplement.percentOfAdult),
+      flatCost:
+        supplement.flatCost == null || supplement.flatCost === ''
+          ? null
+          : asNumber(supplement.flatCost),
+      validFrom: normalizeDate(supplement.validFrom, 'additionalPax.validFrom'),
+      validTo: normalizeDate(supplement.validTo, 'additionalPax.validTo'),
+    }
+  })
+}
+
 function normalizePolicy(raw: unknown, index: number): ExtractedPolicy {
   if (!raw || typeof raw !== 'object') {
     throw new Error(`Policy row ${index + 1} is malformed. Please retry extraction.`)
@@ -213,6 +272,8 @@ function normalizePolicy(raw: unknown, index: number): ExtractedPolicy {
       ? policy.peServicesAffected.map((s) => asString(s)).filter(Boolean)
       : [],
     confirmed: false,
+    childBrackets:
+      type === 'children_sharing' ? normalizeChildSharingBrackets(policy.childBrackets) : undefined,
   }
 }
 
@@ -278,6 +339,7 @@ export function normalizeSupplierExtraction(raw: unknown, supplierIndex = 0): Ex
     rates: obj.rates.map(normalizeRate),
     policies: obj.policies.map(normalizePolicy),
     nonAccommodationRates: normalizeNonAccommodationRates(obj.nonAccommodationRates),
+    additionalPaxSupplements: normalizeAdditionalPaxSupplements(obj.additionalPaxSupplements),
     parkFees: normalizeParkFees(obj.parkFees),
     festiveTerms: normalizeFestiveTerms(obj.festiveTerms),
     contractConstraints: normalizeContractConstraints(obj.contractConstraints),

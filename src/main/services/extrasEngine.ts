@@ -7,15 +7,25 @@ import {
 } from '../../shared/constants'
 import type {
   ConfirmedPolicy,
+  AdditionalPaxSupplement,
+  ChildSharingBracket,
   ExtractionResult,
   ExtractedPolicy,
+  ExtractedRate,
   ExtrasRow,
   FestiveTerm,
+  NonAccommodationRate,
   ServiceMatch,
   Supplier,
 } from '../../shared/types'
+import { scoreServiceRefAgainstRate } from '../../shared/serviceTokenMatcher'
 import { flagsForRowType } from './extrasFlags'
 import { consolidateFlatExtras, sortExtrasRows } from './extrasSort'
+import {
+  inferAccommodationRateTypeCode,
+  isPerPersonRateType,
+  isPerRoomRateType,
+} from './nonAccommodationBuilder'
 
 function isGpkgParent(name: string): boolean {
   return /\bGPKG\b/i.test(name) || /\bGAME\s*PACKAGE\b/i.test(name)
@@ -61,6 +71,24 @@ function parkFeeParents(accommodationMatches: ServiceMatch[]): ServiceMatch[] {
 function roomTiedParents(accommodationMatches: ServiceMatch[]): ServiceMatch[] {
   return accommodationMatches.filter(
     (m) => m.peServiceName && (isFbParent(m.peServiceName) || isGpkgParent(m.peServiceName)),
+  )
+}
+
+function findNonAccommodationRatesForExtra(
+  extraction: ExtractionResult,
+  extra: ServiceMatch,
+): NonAccommodationRate[] {
+  const rates = (extraction.nonAccommodationRates ?? []).filter((na) => na.released)
+  const extracted = extra.extractedName.toLowerCase()
+
+  const exact = rates.filter((na) => na.description.toLowerCase() === extracted)
+  if (exact.length > 0) return exact
+
+  return rates.filter(
+    (na) =>
+      extra.peServiceName?.toLowerCase().includes(na.description.toLowerCase()) ||
+      na.description.toLowerCase().includes(extracted) ||
+      extracted.includes(na.description.toLowerCase()),
   )
 }
 
@@ -233,6 +261,148 @@ function parseSharingPercent(policy: ExtractedPolicy): number | null {
   return m ? Number(m[1]) : null
 }
 
+function formatAgeBracket(ageFrom: number, ageTo: number): string {
+  const fmt = (value: number) => (Number.isInteger(value) ? String(value) : String(value))
+  return `${fmt(ageFrom)} to ${fmt(ageTo)} yrs`
+}
+
+function isDoubleTwinParent(name: string): boolean {
+  return /\bDOUBLE\b/i.test(name) || /\bTWIN\b/i.test(name)
+}
+
+function isFamilyParent(name: string): boolean {
+  return /\bFAMILY\b/i.test(name) || /\bPRIVATE\s*HOUSE\b/i.test(name)
+}
+
+function isSingleParent(name: string): boolean {
+  return /\bSINGLE\b/i.test(name) && !/\bFAMILY\b/i.test(name)
+}
+
+function isCiorAccommodationParent(name: string): boolean {
+  return /\bCIOR\b/i.test(name)
+}
+
+function buildChildSharingExtraName(bracket: ChildSharingBracket, parentName: string): string {
+  const ageLabel = formatAgeBracket(bracket.ageFrom, bracket.ageTo)
+  if (bracket.passengerType === 'infant') {
+    return `Infant (${ageLabel}) Sharing`
+  }
+
+  if (isDoubleTwinParent(parentName)) {
+    if (bracket.adultsSharingWith === 1) {
+      return `Child (${ageLabel}) Sharing with 1 Adult`
+    }
+    if (bracket.adultsSharingWith === 2) {
+      return `Child (${ageLabel}) Sharing with 2 Adults`
+    }
+    return `Child (${ageLabel}) Sharing`
+  }
+
+  return `Child (${ageLabel}) Sharing with 1 Adult`
+}
+
+function parentAcceptsChildSharingBracket(parentName: string, bracket: ChildSharingBracket): boolean {
+  if (!parentAllowsChildExtras(parentName)) return false
+  if (/\bTRIPLE\b/i.test(parentName)) return false
+  if (isSingleParent(parentName)) return false
+  if (isCiorAccommodationParent(parentName)) return false
+
+  if (bracket.passengerType === 'infant') {
+    return isDoubleTwinParent(parentName) || isFamilyParent(parentName)
+  }
+
+  return isDoubleTwinParent(parentName)
+}
+
+function findBaseRateForParent(extraction: ExtractionResult, parent: ServiceMatch): ExtractedRate | undefined {
+  return extraction.rates.find(
+    (rate) =>
+      parent.peServiceName?.toLowerCase().includes(rate.roomType.toLowerCase()) ||
+      parent.peServiceName?.toLowerCase().includes(rate.mealBasis.toLowerCase()),
+  )
+}
+
+function parentPaxBasis(rate: ExtractedRate): number {
+  const basedOn = rate.occupancyRules.match(/based\s+on\s+(\d+)/i)
+  if (basedOn) return Number(basedOn[1])
+  if (rate.maxPax != null && rate.maxPax > 1) return rate.maxPax
+  return 1
+}
+
+function convertPercentForParent(percent: number, rateTypeCode: string, baseRate?: ExtractedRate): number {
+  if (isPerPersonRateType(rateTypeCode)) return percent
+  const basis = baseRate ? parentPaxBasis(baseRate) : 1
+  return Math.round((percent / basis) * 10000) / 10000
+}
+
+function legacyChildSharingBrackets(policy: ExtractedPolicy): ChildSharingBracket[] {
+  const pct = parseSharingPercent(policy)
+  if (pct == null) {
+    return [
+      {
+        ageFrom: 5,
+        ageTo: 16.99,
+        passengerType: 'child',
+        adultsSharingWith: null,
+        flatCost: 0,
+      },
+    ]
+  }
+
+  return [
+    {
+      ageFrom: 5,
+      ageTo: 16.99,
+      passengerType: 'child',
+      adultsSharingWith: null,
+      percentOfAdult: pct,
+    },
+  ]
+}
+
+function childSharingBracketsForPolicy(policy: ExtractedPolicy): ChildSharingBracket[] {
+  if (policy.childBrackets?.length) return policy.childBrackets
+  return legacyChildSharingBrackets(policy)
+}
+
+function buildChildSharingRowOpts(
+  bracket: ChildSharingBracket,
+  extraction: ExtractionResult,
+  parent: ServiceMatch,
+): Partial<ExtrasRow> & { internalRowType: ExtrasRow['internalRowType'] } {
+  const baseRate = findBaseRateForParent(extraction, parent)
+  const rateTypeCode = baseRate ? inferAccommodationRateTypeCode(baseRate) : 'PPPN'
+  const internalRowType = bracket.passengerType === 'infant' ? 'infant_sharing' : 'child_sharing'
+
+  if (bracket.percentOfAdult != null) {
+    const pricePercent = convertPercentForParent(bracket.percentOfAdult, rateTypeCode, baseRate)
+    return {
+      internalRowType,
+      dateFrom: extraction.contractPeriod.from,
+      dateTo: extraction.contractPeriod.to,
+      cost: null,
+      sell: null,
+      pricePercent,
+      childOnly: bracket.passengerType === 'child',
+      infantOnly: bracket.passengerType === 'infant',
+      rateCode: 'PPPN',
+    }
+  }
+
+  const flatCost = bracket.flatCost ?? 0
+  return {
+    internalRowType,
+    dateFrom: extraction.contractPeriod.from,
+    dateTo: extraction.contractPeriod.to,
+    cost: flatCost,
+    sell: flatCost,
+    pricePercent: null,
+    childOnly: bracket.passengerType === 'child',
+    infantOnly: bracket.passengerType === 'infant',
+    rateCode: 'PPPN',
+  }
+}
+
 function buildChildSharingRows(
   extraction: ExtractionResult,
   supplier: Supplier,
@@ -243,39 +413,190 @@ function buildChildSharingRows(
   const confirmed = confirmedPolicies.find((cp) => cp.type === 'children_sharing')
   if (!policy || !confirmed?.confirmed || policy.calculationApplied.includes('ambiguous')) return []
 
-  const pct = parseSharingPercent(policy)
+  const brackets = childSharingBracketsForPolicy(policy)
   const rows: ExtrasRow[] = []
 
   for (const parent of accommodationMatches) {
-    if (!parent.peServiceName || !parentAllowsChildExtras(parent.peServiceName)) continue
-    if (/\bTRIPLE\b/i.test(parent.peServiceName)) continue
+    if (!parent.peServiceName) continue
 
-    const baseRate = extraction.rates.find(
-      (r) =>
-        parent.peServiceName?.toLowerCase().includes(r.roomType.toLowerCase()) ||
-        parent.peServiceName?.toLowerCase().includes(r.mealBasis.toLowerCase()),
-    )
-    const amount =
-      pct != null && baseRate ? Math.round(baseRate.rateAmount * (pct / 100) * 100) / 100 : 0
+    for (const bracket of brackets) {
+      if (!parentAcceptsChildSharingBracket(parent.peServiceName, bracket)) continue
 
-    const isDoubleTwin =
-      /\bDOUBLE\b/i.test(parent.peServiceName) || /\bTWIN\b/i.test(parent.peServiceName)
-    const extraName = isDoubleTwin
-      ? 'Child (5 to 16.99 yrs) Sharing'
-      : 'Child (5 to 16.99 yrs) Sharing with 1 Adult'
-
-    rows.push(
-      makeExtrasRow(supplier, parent, extraName, {
-        internalRowType: 'child_sharing',
-        dateFrom: extraction.contractPeriod.from,
-        dateTo: extraction.contractPeriod.to,
-        cost: amount,
-        sell: amount,
-        childOnly: true,
-        rateCode: 'PPPN',
-      }),
-    )
+      rows.push(
+        makeExtrasRow(
+          supplier,
+          parent,
+          buildChildSharingExtraName(bracket, parent.peServiceName),
+          buildChildSharingRowOpts(bracket, extraction, parent),
+        ),
+      )
+    }
   }
+  return rows
+}
+
+const ADDITIONAL_PAX_MATCH_THRESHOLD = 0.5
+
+function isFamilyOrPrivateHouseRoom(roomType: string): boolean {
+  return /\bFAMILY\b/i.test(roomType) || /\bPRIVATE\s*HOUSE\b/i.test(roomType)
+}
+
+function supplementServiceReference(supplement: AdditionalPaxSupplement): string {
+  return [supplement.mealBasis, supplement.parentRoomType].filter(Boolean).join(' ').trim()
+}
+
+function supplementToRate(supplement: AdditionalPaxSupplement): ExtractedRate {
+  return {
+    propertyName: supplement.propertyName ?? '',
+    roomType: supplement.parentRoomType,
+    mealBasis: supplement.mealBasis ?? '',
+    seasonName: '',
+    validFrom: supplement.validFrom,
+    validTo: supplement.validTo,
+    rateAmount: 0,
+    currency: 'USD',
+    rateCode: 'FAM',
+    occupancyRules: '',
+    childRates: [],
+    singleSupplement: null,
+    notes: '',
+  }
+}
+
+function parentMatchesAdditionalPaxSupplement(
+  parent: ServiceMatch,
+  supplement: AdditionalPaxSupplement,
+): boolean {
+  if (!parent.peServiceName || !isFamilyParent(parent.peServiceName)) return false
+  const ref = supplementServiceReference(supplement)
+  if (!ref) return true
+  return scoreServiceRefAgainstRate(ref, supplementToRate(supplement)) >= ADDITIONAL_PAX_MATCH_THRESHOLD
+}
+
+function findPerRoomRateForParent(
+  extraction: ExtractionResult,
+  parent: ServiceMatch,
+  supplement: AdditionalPaxSupplement,
+): ExtractedRate | undefined {
+  return extraction.rates.find((rate) => {
+    if (rate.isNonAccommodation) return false
+    if (rate.validFrom !== supplement.validFrom || rate.validTo !== supplement.validTo) return false
+    if (!isPerRoomRateType(inferAccommodationRateTypeCode(rate))) return false
+    const ref = supplementServiceReference(supplement)
+    return scoreServiceRefAgainstRate(ref || rate.roomType, rate) >= ADDITIONAL_PAX_MATCH_THRESHOLD
+  })
+}
+
+function findPpsReferenceRate(
+  rates: ExtractedRate[],
+  perRoomRate: ExtractedRate,
+): ExtractedRate | undefined {
+  return rates.find(
+    (rate) =>
+      !rate.isNonAccommodation &&
+      isPerPersonRateType(inferAccommodationRateTypeCode(rate)) &&
+      rate.mealBasis.toLowerCase() === perRoomRate.mealBasis.toLowerCase() &&
+      rate.validFrom === perRoomRate.validFrom &&
+      rate.validTo === perRoomRate.validTo &&
+      (rate.propertyName === perRoomRate.propertyName || !perRoomRate.propertyName),
+  )
+}
+
+function deriveAdditionalPaxSupplements(extraction: ExtractionResult): AdditionalPaxSupplement[] {
+  if (extraction.additionalPaxSupplements?.length) return extraction.additionalPaxSupplements
+
+  const supplements: AdditionalPaxSupplement[] = []
+  for (const rate of extraction.rates) {
+    if (rate.isNonAccommodation) continue
+    if (!isPerRoomRateType(inferAccommodationRateTypeCode(rate))) continue
+    if (!isFamilyOrPrivateHouseRoom(rate.roomType)) continue
+
+    const pps = findPpsReferenceRate(extraction.rates, rate)
+    if (!pps) continue
+
+    supplements.push({
+      parentRoomType: rate.roomType,
+      mealBasis: rate.mealBasis,
+      propertyName: rate.propertyName,
+      passengerType: 'adult',
+      flatCost: pps.rateAmount,
+      validFrom: rate.validFrom,
+      validTo: rate.validTo,
+    })
+  }
+  return supplements
+}
+
+function buildAdditionalPaxExtraName(supplement: AdditionalPaxSupplement): string {
+  if (supplement.passengerType === 'adult') return 'Additional Adult'
+  const ageLabel = formatAgeBracket(supplement.ageFrom ?? 0, supplement.ageTo ?? 0)
+  if (supplement.passengerType === 'infant') return `Additional Infant (${ageLabel})`
+  return `Additional Child (${ageLabel})`
+}
+
+function buildAdditionalPaxRowOpts(
+  supplement: AdditionalPaxSupplement,
+  extraction: ExtractionResult,
+  parent: ServiceMatch,
+): Partial<ExtrasRow> & { internalRowType: ExtrasRow['internalRowType'] } {
+  const perRoomRate = findPerRoomRateForParent(extraction, parent, supplement)
+  const rateTypeCode = perRoomRate ? inferAccommodationRateTypeCode(perRoomRate) : 'PRPN'
+  const internalRowType =
+    supplement.passengerType === 'child' ? 'additional_child' : 'additional_adult'
+
+  if (supplement.percentOfAdult != null) {
+    return {
+      internalRowType,
+      dateFrom: supplement.validFrom,
+      dateTo: supplement.validTo,
+      cost: null,
+      sell: null,
+      pricePercent: convertPercentForParent(supplement.percentOfAdult, rateTypeCode, perRoomRate),
+      childOnly: supplement.passengerType === 'child',
+      infantOnly: supplement.passengerType === 'infant',
+      rateCode: 'PPPN',
+    }
+  }
+
+  const flatCost = supplement.flatCost ?? 0
+  return {
+    internalRowType,
+    dateFrom: supplement.validFrom,
+    dateTo: supplement.validTo,
+    cost: flatCost,
+    sell: flatCost,
+    pricePercent: null,
+    childOnly: supplement.passengerType === 'child',
+    infantOnly: supplement.passengerType === 'infant',
+    rateCode: 'PPPN',
+  }
+}
+
+function buildAdditionalPaxRows(
+  extraction: ExtractionResult,
+  supplier: Supplier,
+  accommodationMatches: ServiceMatch[],
+): ExtrasRow[] {
+  const supplements = deriveAdditionalPaxSupplements(extraction)
+  const rows: ExtrasRow[] = []
+
+  for (const supplement of supplements) {
+    if (!supplement.parentRoomType) continue
+
+    for (const parent of accommodationMatches) {
+      if (!parentMatchesAdditionalPaxSupplement(parent, supplement)) continue
+
+      rows.push(
+        makeExtrasRow(
+          supplier,
+          parent,
+          buildAdditionalPaxExtraName(supplement),
+          buildAdditionalPaxRowOpts(supplement, extraction, parent),
+        ),
+      )
+    }
+  }
+
   return rows
 }
 
@@ -290,6 +611,7 @@ export function buildExtrasRows(
 
   const rows: ExtrasRow[] = [
     ...buildChildSharingRows(extraction, supplier, accommodationMatches, confirmedPolicies),
+    ...buildAdditionalPaxRows(extraction, supplier, accommodationMatches),
     ...buildParkFeeRows(extraction, supplier, accommodationMatches),
     ...buildFestiveRows(extraction, supplier, accommodationMatches),
   ]
@@ -308,16 +630,35 @@ export function buildExtrasRows(
       ? `${property} — ${extra.extractedName} Adult`
       : `${extra.extractedName} Adult`
 
-    rows.push(
-      makeExtrasRow(supplier, parent, extraName, {
-        internalRowType: isConservancy ? 'park_fee' : 'other',
-        dateFrom: extraction.contractPeriod.from,
-        dateTo: extraction.contractPeriod.to,
-        cost: 0,
-        sell: 0,
-        mandatory: isConservancy,
-      }),
-    )
+    const naRates = findNonAccommodationRatesForExtra(extraction, extra)
+
+    if (naRates.length === 0) {
+      rows.push(
+        makeExtrasRow(supplier, parent, extraName, {
+          internalRowType: isConservancy ? 'park_fee' : 'other',
+          dateFrom: extraction.contractPeriod.from,
+          dateTo: extraction.contractPeriod.to,
+          cost: 0,
+          sell: 0,
+          mandatory: isConservancy,
+        }),
+      )
+      continue
+    }
+
+    for (const na of naRates) {
+      rows.push(
+        makeExtrasRow(supplier, parent, extraName, {
+          internalRowType: isConservancy ? 'park_fee' : 'other',
+          dateFrom: na.validFrom,
+          dateTo: na.validTo,
+          cost: na.cost,
+          sell: na.sell,
+          rateCode: na.rateTypeCode,
+          mandatory: isConservancy,
+        }),
+      )
+    }
   }
 
   void DEFAULT_BUSINESS_MODEL

@@ -17,6 +17,12 @@ export function isPerPersonRateType(code: string): boolean {
   return PER_PERSON_CODES.has(code.toUpperCase())
 }
 
+export function isPerRoomRateType(code: string): boolean {
+  const upper = code.toUpperCase()
+  if (isPerPersonRateType(upper)) return false
+  return upper.startsWith('PRPN') || upper.startsWith('PHPN') || upper.startsWith('PRPD') || upper === 'PR'
+}
+
 function childCostForNonAccom(rate: NonAccommodationRate, adultBuy: number): number {
   if (rate.childCost != null) return rate.childCost
   if (isPerPersonRateType(rate.rateTypeCode)) return adultBuy

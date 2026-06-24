@@ -187,7 +187,13 @@ export function buildRows(session: ParseSession): {
   }
 
   for (const cior of buildCiorRows(extraction, confirmedPolicies)) {
+    const ciorMealBasis = cior.serviceName.split(' ')[0].toUpperCase()
     const ciorMatch =
+      serviceMatches.find(
+        (m) =>
+          m.peServiceName?.toUpperCase().includes('CIOR') &&
+          m.peServiceName.toUpperCase().startsWith(ciorMealBasis),
+      ) ??
       serviceMatches.find((m) => m.peServiceName?.toUpperCase().includes('CIOR')) ??
       serviceMatches[0]
     const rateType = lookupRateType(cior.rateTypeCode) ?? lookupRateType('PPPN')!
