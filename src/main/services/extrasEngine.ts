@@ -478,12 +478,12 @@ function findPerRoomRateForParent(
   parent: ServiceMatch,
   supplement: AdditionalPaxSupplement,
 ): ExtractedRate | undefined {
+  const parentRef = parent.peServiceName ?? supplementServiceReference(supplement)
   return extraction.rates.find((rate) => {
     if (rate.isNonAccommodation) return false
     if (rate.validFrom !== supplement.validFrom || rate.validTo !== supplement.validTo) return false
     if (!isPerRoomRateType(inferAccommodationRateTypeCode(rate))) return false
-    const ref = supplementServiceReference(supplement)
-    return scoreServiceRefAgainstRate(ref || rate.roomType, rate) >= ADDITIONAL_PAX_MATCH_THRESHOLD
+    return scoreServiceRefAgainstRate(parentRef, rate) >= ADDITIONAL_PAX_MATCH_THRESHOLD
   })
 }
 
