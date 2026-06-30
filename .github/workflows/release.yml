@@ -56,14 +56,18 @@ jobs:
           - os: macos-latest
             mac_arch: arm64
             artifact-name: mac-dmg-arm64
-            artifact-glob: release/*arm64.dmg
+            artifact-paths: |
+              release/*arm64.dmg
+              release/latest-mac.yml
           - os: macos-latest
             mac_arch: x64
             artifact-name: mac-dmg-x64
-            artifact-glob: release/*.dmg
+            artifact-paths: release/*.dmg
           - os: windows-latest
             artifact-name: win-exe
-            artifact-glob: release/*.exe
+            artifact-paths: |
+              release/*.exe
+              release/latest.yml
 
     steps:
       - uses: actions/checkout@v4
@@ -112,9 +116,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact-name }}
-          path: |
-            ${{ matrix.artifact-glob }}
-            release/*.yml
+          path: ${{ matrix.artifact-paths }}
           if-no-files-found: error
           retention-days: 90
 
@@ -133,16 +135,39 @@ jobs:
         with:
           path: artifacts/
 
+      - name: Prepare release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+
+          cp artifacts/mac-dmg-arm64/*arm64.dmg release-assets/
+          if [ -f artifacts/mac-dmg-arm64/latest-mac.yml ]; then
+            cp artifacts/mac-dmg-arm64/latest-mac.yml release-assets/
+          fi
+
+          # x64 DMG only — exclude any arm64-named file if present
+          for dmg in artifacts/mac-dmg-x64/*.dmg; do
+            case "$(basename "$dmg")" in
+              *arm64*) ;;
+              *) cp "$dmg" release-assets/ ;;
+            esac
+          done
+
+          cp artifacts/win-exe/*.exe release-assets/
+          cp artifacts/win-exe/latest.yml release-assets/
+
+          echo "Release assets:"
+          ls -la release-assets/
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: CPS Contract Parser ${{ github.ref_name }}
-          files: |
-            artifacts/mac-dmg-arm64/**
-            artifacts/mac-dmg-x64/**
-            artifacts/win-exe/**
+          files: release-assets/*
           generate_release_notes: true
           draft: false
           prerelease: false
+          overwrite: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

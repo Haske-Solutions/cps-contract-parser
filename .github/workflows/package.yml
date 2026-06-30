@@ -63,7 +63,13 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mac_arch: [arm64, x64]
+        include:
+          - mac_arch: arm64
+            artifact-paths: |
+              release/*arm64.dmg
+              release/latest-mac.yml
+          - mac_arch: x64
+            artifact-paths: release/*.dmg
     steps:
       - uses: actions/checkout@v4
 
@@ -92,9 +98,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mac-dmg-${{ matrix.mac_arch }}
-          path: |
-            ${{ matrix.mac_arch == 'arm64' && 'release/*arm64.dmg' || 'release/*.dmg' }}
-            release/*.yml
+          path: ${{ matrix.artifact-paths }}
           if-no-files-found: error
           retention-days: 30
 
