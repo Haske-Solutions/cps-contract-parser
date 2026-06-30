@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildExtrasRows } from '../main/services/extrasEngine'
-import type { ConfirmedPolicy, ExtractedPolicy, ServiceMatch } from '../shared/types'
+import type { ConfirmedPolicy, ExtractedPolicy, ExtractionResult, ServiceMatch } from '../shared/types'
 import {
   baseExtraction,
   extractionWithNonAccom,
@@ -201,14 +201,14 @@ describe('extrasEngine', () => {
             {
               ageFrom: 12,
               ageTo: 17.99,
-              passengerType: 'child',
-              adultsSharingWith: 1,
+              passengerType: 'child' as const,
+              adultsSharingWith: 1 as const,
               percentOfAdult: 50,
             },
           ],
         },
       ],
-    }
+    } satisfies ExtractionResult
 
     const rows = buildExtrasRows(
       extraction,
@@ -227,7 +227,7 @@ describe('extrasEngine', () => {
       ...baseExtraction,
       policies: [
         {
-          type: 'children_sharing',
+          type: 'children_sharing' as const,
           verbatimText: 'Children sharing at 50%',
           interpretation: '50% sharing',
           calculationApplied: '50% of PPS',
@@ -235,7 +235,7 @@ describe('extrasEngine', () => {
           confirmed: false,
         },
       ],
-    }
+    } satisfies ExtractionResult
 
     const rows = buildExtrasRows(
       extraction,
@@ -370,7 +370,7 @@ describe('extrasEngine', () => {
         {
           parentRoomType: 'Family Tent',
           mealBasis: 'FB',
-          passengerType: 'child',
+          passengerType: 'child' as const,
           ageFrom: 12,
           ageTo: 17.99,
           flatCost: 232,
@@ -378,7 +378,7 @@ describe('extrasEngine', () => {
           validTo: '2026-03-31',
         },
       ],
-    }
+    } satisfies ExtractionResult
 
     const rows = buildExtrasRows(extraction, mockSupplier, [familyParent], [], [])
 
