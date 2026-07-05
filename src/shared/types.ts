@@ -506,7 +506,10 @@ export type UpdateStatus =
   | { status: 'downloading'; version: string; percent: number }
   | { status: 'downloaded'; version: string }
   | { status: 'error'; message: string }
+  /** Auto-update genuinely can't work here (dev build / unpackaged) — retrying won't help. */
   | { status: 'disabled'; reason: string }
+  /** Update check failed in a way that's often transient (feed unreachable, private repo, rate-limited) — retry may succeed. */
+  | { status: 'unavailable'; reason: string }
 
 export interface UpdateCheckResult {
   ok: boolean

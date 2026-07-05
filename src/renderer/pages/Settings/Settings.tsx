@@ -163,6 +163,7 @@ export function Settings() {
       case 'error':
         return updateStatus.message
       case 'disabled':
+      case 'unavailable':
         return updateStatus.reason
       default:
         return 'Installed releases check GitHub automatically about 10 seconds after launch.'

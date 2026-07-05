@@ -14,8 +14,14 @@ function isUpdaterEnabled(): boolean {
   return process.env.NODE_ENV !== 'development' && app.isPackaged
 }
 
-/** Map GitHub/electron-updater failures to user-facing guidance. */
-function classifyUpdateError(err: unknown): { kind: 'disabled' | 'error'; message: string } {
+/**
+ * Map GitHub/electron-updater failures to user-facing guidance.
+ * 'unavailable' is for failures that are often transient (network blip, feed not yet
+ * propagated, private repo) — the UI keeps the retry button live for these. 'error' is
+ * for everything else. Neither implies the permanent 'disabled' status (dev/unpackaged
+ * builds only), which the UI treats as non-retryable.
+ */
+function classifyUpdateError(err: unknown): { kind: 'unavailable' | 'error'; message: string } {
   const raw = err instanceof Error ? err.message : String(err)
   const is404 =
     raw.includes('404') ||
@@ -24,7 +30,7 @@ function classifyUpdateError(err: unknown): { kind: 'disabled' | 'error'; messag
 
   if (is404) {
     return {
-      kind: 'disabled',
+      kind: 'unavailable',
       message:
         'Automatic updates are unavailable. The GitHub release feed could not be reached — ' +
         'this usually means the repository is private, no GitHub Release has been published yet, ' +
@@ -34,7 +40,7 @@ function classifyUpdateError(err: unknown): { kind: 'disabled' | 'error'; messag
 
   if (/authentication token|401|403/i.test(raw)) {
     return {
-      kind: 'disabled',
+      kind: 'unavailable',
       message:
         'Automatic updates require access to the private GitHub release feed. ' +
         'Install new versions manually until a public update channel is configured.',
@@ -117,9 +123,9 @@ function attachAutoUpdaterEvents(): void {
 
   updater.on('error', (err: Error) => {
     const classified = classifyUpdateError(err)
-    if (classified.kind === 'disabled') {
+    if (classified.kind === 'unavailable') {
       logger.warn('updater', classified.message)
-      emitStatus({ status: 'disabled', reason: classified.message })
+      emitStatus({ status: 'unavailable', reason: classified.message })
       return
     }
     logger.error('updater', 'Auto-update failed', err)
@@ -169,8 +175,8 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
     return { ok: true, message: 'Update check complete.' }
   } catch (err) {
     const classified = classifyUpdateError(err)
-    if (classified.kind === 'disabled') {
-      emitStatus({ status: 'disabled', reason: classified.message })
+    if (classified.kind === 'unavailable') {
+      emitStatus({ status: 'unavailable', reason: classified.message })
       return { ok: false, message: classified.message }
     }
     emitStatus({ status: 'error', message: classified.message })
