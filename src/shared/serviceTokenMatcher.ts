@@ -113,9 +113,14 @@ function unionSize(a: Set<string>, b: Set<string>): number {
 }
 
 function coverageScore(record: TokenSet, service: TokenSet): number {
+  // Use the full noun set (not just the fixed ROOM_TOKENS vocabulary) so descriptive
+  // words PE names always carry (GARDEN, ROOM, STANDARD, SUPERIOR, OCEANVIEW, UNDERWATER, ...)
+  // are required for a strict match. Without this, unrelated room categories that share no
+  // recognized ROOM_TOKENS word (e.g. "Garden Room" vs "Underwater Room") both reduce to the
+  // same required set (just the meal basis) and tie.
   const required = new Set([
     ...record.mealBasis,
-    ...record.roomTypes,
+    ...record.nouns,
     ...record.markers,
     ...record.policyTiers,
     ...record.ageBrackets,
@@ -201,6 +206,51 @@ export function scoreServiceRefAgainstRate(serviceRef: string, rate: ExtractedRa
   return covered / required.size
 }
 
+/** Occupancy word(s) implied by a PE rate code, used only to break ties among otherwise-equal candidates. */
+function occupancyWordsForRateCode(rateCode: string): string[] {
+  switch (rateCode.toUpperCase()) {
+    case 'DBL':
+      return ['DOUBLE']
+    case 'TWN':
+      return ['TWIN']
+    case 'SGL':
+    case 'SGL1':
+    case 'SGL2':
+    case 'SGL3':
+      return ['SINGLE']
+    case 'TRP':
+      return ['TRIPLE']
+    case 'QUD':
+      return ['QUAD', 'QUADRUPLE']
+    case 'FAM':
+      return ['FAMILY']
+    case 'HON':
+      return ['HONEYMOON']
+    default:
+      return []
+  }
+}
+
+/**
+ * Narrows a tied candidate set using the occupancy implied by the rate's rateCode
+ * (e.g. DBL -> DOUBLE), when the extracted roomType text itself doesn't carry that word
+ * (occupancy is often conveyed only via rateCode per extraction rule I14). Only applied
+ * when it actually narrows to a non-empty subset — never invents a false positive when no
+ * tied candidate carries the occupancy word (e.g. per-unit villas coded FAM with no
+ * "Family" in the PE name).
+ */
+function refineTiedByOccupancy<T extends { service: PEService }>(tied: T[], rate: ExtractedRate): T[] {
+  const words = occupancyWordsForRateCode(rate.rateCode)
+  if (words.length === 0) return tied
+
+  const narrowed = tied.filter(({ service }) => {
+    const tokens = serviceTokenUnion(tokenizePeServiceName(service.name))
+    return words.some((w) => tokens.has(w))
+  })
+
+  return narrowed.length > 0 && narrowed.length < tied.length ? narrowed : tied
+}
+
 export function matchRateToServices(
   rate: ExtractedRate,
   services: PEService[],
@@ -227,7 +277,10 @@ export function matchRateToServices(
     }
 
     const fuzzyTop = fuzzyScored[0]
-    const fuzzyTied = fuzzyScored.filter((x) => x.score === fuzzyTop.score)
+    const fuzzyTied = refineTiedByOccupancy(
+      fuzzyScored.filter((x) => x.score === fuzzyTop.score),
+      rate,
+    )
 
     if (fuzzyTied.length > 1) {
       return {
@@ -239,14 +292,17 @@ export function matchRateToServices(
 
     return {
       status: 'fuzzy_match',
-      service: fuzzyTop.service,
-      candidates: [fuzzyTop.service],
-      score: fuzzyTop.score,
+      service: fuzzyTied[0]!.service,
+      candidates: [fuzzyTied[0]!.service],
+      score: fuzzyTied[0]!.score,
     }
   }
 
   const top = scored[0]
-  const tied = scored.filter((x) => x.score === top.score)
+  const tied = refineTiedByOccupancy(
+    scored.filter((x) => x.score === top.score),
+    rate,
+  )
 
   if (tied.length > 1) {
     return {
@@ -258,9 +314,9 @@ export function matchRateToServices(
 
   return {
     status: 'matched',
-    service: top.service,
-    candidates: [top.service],
-    score: top.score,
+    service: tied[0]!.service,
+    candidates: [tied[0]!.service],
+    score: tied[0]!.score,
   }
 }
 
