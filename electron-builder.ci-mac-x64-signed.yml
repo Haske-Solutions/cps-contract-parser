@@ -1,7 +1,12 @@
-# CI signed macOS x64 DMG.
+# CI signed macOS x64 DMG + ZIP.
+# ZIP is required alongside the DMG — electron-updater's macOS auto-updater only
+# understands ZIP packages ("ZIP file not provided" if only a DMG is published).
 extends: electron-builder.yml
 mac:
   target:
     - target: dmg
+      arch:
+        - x64
+    - target: zip
       arch:
         - x64

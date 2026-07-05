@@ -1,9 +1,14 @@
-# CI/local unsigned macOS arm64 DMG (single-arch; no --arm64 CLI flag needed).
+# CI/local unsigned macOS arm64 DMG + ZIP (single-arch; no --arm64 CLI flag needed).
+# ZIP is required alongside the DMG — electron-updater's macOS auto-updater only
+# understands ZIP packages ("ZIP file not provided" if only a DMG is published).
 extends: electron-builder.yml
 mac:
   hardenedRuntime: false
   gatekeeperAssess: false
   target:
     - target: dmg
+      arch:
+        - arm64
+    - target: zip
       arch:
         - arm64

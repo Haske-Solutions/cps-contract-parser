@@ -58,11 +58,15 @@ jobs:
             artifact-name: mac-dmg-arm64
             artifact-paths: |
               release/*arm64.dmg
+              release/*arm64*.zip
               release/latest-mac.yml
           - os: macos-latest
             mac_arch: x64
             artifact-name: mac-dmg-x64
-            artifact-paths: release/*.dmg
+            artifact-paths: |
+              release/*.dmg
+              release/*.zip
+              release/latest-mac.yml
           - os: windows-latest
             artifact-name: win-exe
             artifact-paths: |
@@ -130,6 +134,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -142,15 +150,13 @@ jobs:
           mkdir -p release-assets
 
           cp artifacts/mac-dmg-arm64/*arm64.dmg release-assets/
-          if [ -f artifacts/mac-dmg-arm64/latest-mac.yml ]; then
-            cp artifacts/mac-dmg-arm64/latest-mac.yml release-assets/
-          fi
+          cp artifacts/mac-dmg-arm64/*arm64*.zip release-assets/
 
-          # x64 DMG only — exclude any arm64-named file if present
-          for dmg in artifacts/mac-dmg-x64/*.dmg; do
-            case "$(basename "$dmg")" in
+          # x64 DMG/ZIP only — exclude any arm64-named file if present
+          for f in artifacts/mac-dmg-x64/*.dmg artifacts/mac-dmg-x64/*.zip; do
+            case "$(basename "$f")" in
               *arm64*) ;;
-              *) cp "$dmg" release-assets/ ;;
+              *) cp "$f" release-assets/ ;;
             esac
           done
 
@@ -159,6 +165,12 @@ jobs:
 
           echo "Release assets:"
           ls -la release-assets/
+
+      - name: Merge macOS update manifests (arm64 + x64)
+        # electron-updater's macOS auto-updater needs a ZIP entry per architecture
+        # in latest-mac.yml. Each mac job produces its own manifest (only for the
+        # arch it built) — merge them into one file covering both.
+        run: node scripts/merge-latest-mac-yml.js artifacts/mac-dmg-arm64/latest-mac.yml artifacts/mac-dmg-x64/latest-mac.yml release-assets/latest-mac.yml
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
