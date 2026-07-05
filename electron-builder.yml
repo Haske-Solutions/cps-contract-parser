@@ -2,6 +2,15 @@ appId: com.chelipeacock.contract-parser
 productName: CPS Contract Parser
 copyright: "Copyright © 2026 Cheli and Peacock Safaris"
 
+# productName has spaces, so the local dmg/zip/exe filename electron-builder would
+# otherwise use (built from productName) also has spaces. GitHub Releases silently
+# rewrites spaces to dots in the *hosted* asset URL, but electron-builder's own
+# publish manifest (latest-mac.yml/latest.yml) assumes spaces become dashes — the two
+# never match, so electron-updater 404s on every download. Use a space-free artifact
+# name (matching electron-builder's own npm-name fallback) so the local file, the
+# GitHub-hosted URL, and the manifest all agree with no rewriting needed.
+artifactName: "${name}-${version}-${arch}.${ext}"
+
 # Native modules (@duckdb/node-api, keytar) require per-OS builds — see docs/PACKAGING.md.
 # Do not use electron-builder --win on macOS; the Windows installer will miss duckdb.node.
 
