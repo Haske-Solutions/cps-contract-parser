@@ -45,7 +45,7 @@ const familyMatch: ServiceMatch = {
 }
 
 describe('extrasEngine', () => {
-  it('returns empty extras when extraction has no policy or festive data', () => {
+  it('emits only the raw childRates sharing row when extraction has no confirmed policy or festive data', () => {
     const rows = buildExtrasRows(
       baseExtraction,
       mockSupplier,
@@ -54,7 +54,10 @@ describe('extrasEngine', () => {
       [],
     )
 
-    expect(rows).toEqual([])
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.extraName).toBe('Child (0 to 12 yrs) Sharing')
+    expect(rows[0]?.internalRowType).toBe('child_sharing')
+    expect(rows[0]?.cost).toBe(175)
   })
 
   it('populates cost and sell from matching nonAccommodationRates', () => {
@@ -136,13 +139,14 @@ describe('extrasEngine', () => {
     )
 
     const doubleRows = rows.filter((r) => r.parentServiceName === 'FB Double Deluxe')
-    expect(doubleRows).toHaveLength(4)
+    expect(doubleRows).toHaveLength(5)
     expect(doubleRows.map((r) => r.extraName)).toEqual(
       expect.arrayContaining([
         'Child (0 to 11.99 yrs) Sharing',
         'Child (12 to 17.99 yrs) Sharing with 1 Adult',
         'Child (12 to 17.99 yrs) Sharing with 2 Adults',
         'Infant (0 to 4.99 yrs) Sharing',
+        'Child (0 to 12 yrs) Sharing',
       ]),
     )
     const byName = Object.fromEntries(doubleRows.map((r) => [r.extraName, r]))
@@ -218,8 +222,9 @@ describe('extrasEngine', () => {
       [confirmedChildSharing],
     )
 
-    expect(rows).toHaveLength(1)
-    expect(rows[0]?.pricePercent).toBe(12.5)
+    expect(rows).toHaveLength(2)
+    const percentRow = rows.find((r) => r.pricePercent != null)
+    expect(percentRow?.pricePercent).toBe(12.5)
   })
 
   it('falls back to legacy single child-sharing row when childBrackets are absent', () => {
@@ -245,9 +250,9 @@ describe('extrasEngine', () => {
       [confirmedChildSharing],
     )
 
-    expect(rows).toHaveLength(1)
-    expect(rows[0]?.extraName).toBe('Child (5 to 16.99 yrs) Sharing')
-    expect(rows[0]?.pricePercent).toBe(50)
+    expect(rows).toHaveLength(2)
+    const legacyRow = rows.find((r) => r.extraName === 'Child (5 to 16.99 yrs) Sharing')
+    expect(legacyRow?.pricePercent).toBe(50)
   })
 
   it('skips child-sharing rows for honeymoon parents', () => {
@@ -272,7 +277,7 @@ describe('extrasEngine', () => {
     expect(rows).toHaveLength(0)
   })
 
-  it('does not emit child-sharing rows when policy is unconfirmed', () => {
+  it('does not emit childBrackets-derived sharing rows when the policy is unconfirmed', () => {
     const extraction = {
       ...baseExtraction,
       policies: [childSharingPolicy],
@@ -286,7 +291,11 @@ describe('extrasEngine', () => {
       [mockConfirmedCior],
     )
 
-    expect(rows).toHaveLength(0)
+    // The unconfirmed children_sharing policy contributes nothing; the only row left
+    // is the raw rate.childRates conversion, which isn't gated by policy confirmation.
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.extraName).toBe('Child (0 to 12 yrs) Sharing')
+    expect(rows[0]?.pricePercent).toBeNull()
   })
 
   it('emits seasonal Additional Adult rows for per-room family services', () => {

@@ -321,7 +321,7 @@ export function matchRateToServices(
 }
 
 export function rateRecordKey(rate: ExtractedRate): string {
-  return `${rate.propertyName}|${rate.roomType}|${rate.mealBasis}|${rate.validFrom}|${rate.seasonName}`
+  return `${rate.propertyName}|${rate.roomType}|${rate.mealBasis}|${rate.validFrom}|${rate.seasonName}|${rate.rateCode}`
 }
 
 export interface RateRecordKeyParts {
@@ -330,6 +330,7 @@ export interface RateRecordKeyParts {
   mealBasis: string
   validFrom: string
   seasonName: string
+  rateCode: string
 }
 
 /** True when `extractedName` is the internal pipe-delimited accommodation key. */
@@ -339,10 +340,25 @@ export function isRateRecordKey(value: string): boolean {
 
 export function parseRateRecordKey(key: string): RateRecordKeyParts | null {
   const parts = key.split('|')
-  if (parts.length !== 5) return null
-  const [propertyName, roomType, mealBasis, validFrom, seasonName] = parts
+  if (parts.length !== 6) return null
+  const [propertyName, roomType, mealBasis, validFrom, seasonName, rateCode] = parts
   if (!propertyName || !roomType || !mealBasis || !validFrom) return null
-  return { propertyName, roomType, mealBasis, validFrom, seasonName: seasonName ?? '' }
+  return {
+    propertyName,
+    roomType,
+    mealBasis,
+    validFrom,
+    seasonName: seasonName ?? '',
+    rateCode: rateCode ?? '',
+  }
+}
+
+/** Human-readable occupancy label for a rate code (DBL -> Double), falling back to the raw code. */
+function occupancyLabel(rateCode: string): string {
+  const words = occupancyWordsForRateCode(rateCode)
+  if (words.length === 0) return rateCode
+  const word = words[0]!
+  return word[0] + word.slice(1).toLowerCase()
 }
 
 /** Human-readable single-line label for the service-matching grid. */
@@ -351,7 +367,8 @@ export function formatRateRecordKeyLabel(key: string): string {
   if (!parts) return key
 
   const season = parts.seasonName ? ` · ${parts.seasonName}` : ''
-  return `${parts.propertyName} — ${parts.mealBasis} ${parts.roomType}${season}`
+  const occupancy = parts.rateCode ? ` (${occupancyLabel(parts.rateCode)})` : ''
+  return `${parts.propertyName} — ${parts.mealBasis} ${parts.roomType}${occupancy}${season}`
 }
 
 /** Multi-line tooltip body with the full extracted rate identity. */
@@ -363,6 +380,7 @@ export function formatRateRecordKeyTooltip(key: string): string {
     `Property: ${parts.propertyName}`,
     `Room: ${parts.roomType}`,
     `Meal basis: ${parts.mealBasis}`,
+    `Occupancy: ${parts.rateCode || '—'}`,
     `Season: ${parts.seasonName || '—'}`,
     `Valid from: ${parts.validFrom}`,
   ].join('\n')

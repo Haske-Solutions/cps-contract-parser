@@ -47,6 +47,9 @@ export function assertArray<T>(
 }
 
 export function toUint8Array(value: unknown, field: string): Uint8Array {
+  if (value === null || value === undefined) {
+    fail(`${field} is required.`)
+  }
   if (value instanceof Uint8Array) {
     return new Uint8Array(value)
   }

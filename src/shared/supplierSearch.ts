@@ -45,20 +45,30 @@ function commonWordPrefix(terms: string[]): string {
   return prefix.join(' ')
 }
 
+const LEADING_STOPWORDS = new Set(['the', 'a', 'an'])
+
+function stripLeadingStopword(term: string): string {
+  const words = term.trim().split(/\s+/).filter(Boolean)
+  if (words.length > 1 && LEADING_STOPWORDS.has(words[0]!.toLowerCase())) {
+    return words.slice(1).join(' ')
+  }
+  return term
+}
+
 function leadingBrandToken(term: string): string | null {
-  const first = term.trim().split(/\s+/)[0]
+  const first = stripLeadingStopword(term).trim().split(/\s+/)[0]
   return first && first.length >= 2 ? first : null
 }
 
 function groupBrandFromTerm(term: string): string | null {
-  const match = term.match(
+  const match = stripLeadingStopword(term).match(
     /^(.+?)\s+(?:Collection|Group|Safaris|Lodges|Camps|Portfolio|Hotels)(?:\b|$)/i,
   )
   return match?.[1]?.trim() || null
 }
 
 function propertyBrandFromTerm(term: string): string | null {
-  const match = term.match(
+  const match = stripLeadingStopword(term).match(
     /^(.+?)\s+(?:Camp|Lodge|Hotel|Resort|Tented|Treetops|House|Villa|Manor)\b/i,
   )
   if (!match) return null

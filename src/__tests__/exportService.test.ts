@@ -181,9 +181,10 @@ describe('Extras consolidation', () => {
     })
 
     const { extrasRows } = buildRows(session)
+    const matchRows = extrasRows.filter((r) => r.internalRowType !== 'child_sharing')
 
-    expect(extrasRows).toHaveLength(2)
-    expect(extrasRows.map((r) => r.extraName)).toEqual(
+    expect(matchRows).toHaveLength(2)
+    expect(matchRows.map((r) => r.extraName)).toEqual(
       expect.arrayContaining([expect.stringContaining('Laundry'), expect.stringContaining('Park Fee')]),
     )
   })
@@ -410,8 +411,9 @@ describe('Conservancy supplier identity', () => {
     })
 
     const { extrasRows } = buildRows(session)
+    const laundryRow = extrasRows.find((r) => r.extraName.includes('Laundry'))
 
-    expect(extrasRows[0]?.extraName).toContain('Laundry')
+    expect(laundryRow?.extraName).toContain('Laundry')
   })
 })
 
@@ -466,9 +468,10 @@ describe('Extras row sort order', () => {
     })
 
     const { extrasRows } = buildRows(session)
+    const sortableRows = extrasRows.filter((r) => r.internalRowType !== 'child_sharing')
 
-    expect(extrasRows[0]?.extraName).toContain('Acacia Activity')
-    expect(extrasRows[1]?.extraName).toContain('Zebra Park Fee')
+    expect(sortableRows[0]?.extraName).toContain('Acacia Activity')
+    expect(sortableRows[1]?.extraName).toContain('Zebra Park Fee')
   })
 })
 

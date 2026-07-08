@@ -24,6 +24,7 @@ describe('ipc validate', () => {
 
   it('toUint8Array rejects invalid payloads', () => {
     expect(() => toUint8Array('not-bytes', 'pdf')).toThrow(IpcValidationError)
+    expect(() => toUint8Array(null, 'pdf')).toThrow(/pdf is required/)
   })
 
   it('assertSupplierArray validates supplier shape', () => {

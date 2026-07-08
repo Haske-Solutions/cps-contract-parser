@@ -19,10 +19,12 @@ import type {
   Supplier,
 } from '../../shared/types'
 import { scoreServiceRefAgainstRate } from '../../shared/serviceTokenMatcher'
+import { findMatchForRate } from '../../shared/serviceMatcher'
 import { flagsForRowType } from './extrasFlags'
 import { consolidateFlatExtras, sortExtrasRows } from './extrasSort'
 import {
   inferAccommodationRateTypeCode,
+  isFeeShapedDescription,
   isPerPersonRateType,
   isPerRoomRateType,
 } from './nonAccommodationBuilder'
@@ -41,6 +43,11 @@ function isHoneymoonParent(name: string): boolean {
 
 function isCiorParent(name: string): boolean {
   return /\bCIOR\b/i.test(name)
+}
+
+/** True when the matched PE service is a true Child-In-Own-Room service (Rule 18). */
+export function isCiorService(name: string | null | undefined): boolean {
+  return !!name && isCiorParent(name)
 }
 
 function isGuidePilotParent(name: string): boolean {
@@ -64,11 +71,20 @@ function parentAllowsChildParkFee(parentName: string): boolean {
   return true
 }
 
+/** True when this supplier's services distinguish FB vs GPKG at all (Rule 19 assumes it always does). */
+function hasFbOrGpkgDistinction(accommodationMatches: ServiceMatch[]): boolean {
+  return accommodationMatches.some(
+    (m) => m.peServiceName && (isFbParent(m.peServiceName) || isGpkgParent(m.peServiceName)),
+  )
+}
+
 function parkFeeParents(accommodationMatches: ServiceMatch[]): ServiceMatch[] {
+  if (!hasFbOrGpkgDistinction(accommodationMatches)) return accommodationMatches
   return accommodationMatches.filter((m) => m.peServiceName && isGpkgParent(m.peServiceName))
 }
 
 function roomTiedParents(accommodationMatches: ServiceMatch[]): ServiceMatch[] {
+  if (!hasFbOrGpkgDistinction(accommodationMatches)) return accommodationMatches
   return accommodationMatches.filter(
     (m) => m.peServiceName && (isFbParent(m.peServiceName) || isGpkgParent(m.peServiceName)),
   )
@@ -435,6 +451,43 @@ function buildChildSharingRows(
   return rows
 }
 
+/** Converts non-CIOR rate.childRates[] brackets into child-sharing Extras rows (Rule 18). */
+function buildRateChildRateRows(
+  extraction: ExtractionResult,
+  supplier: Supplier,
+  accommodationMatches: ServiceMatch[],
+): ExtrasRow[] {
+  const rows: ExtrasRow[] = []
+
+  for (const rate of extraction.rates) {
+    if (rate.isNonAccommodation) continue
+    if (rate.childRates.length === 0) continue
+
+    const match = findMatchForRate(rate, accommodationMatches)
+    if (!match || match.status !== 'matched' || !match.peServiceName) continue
+    if (isCiorService(match.peServiceName)) continue
+    if (!parentAllowsChildExtras(match.peServiceName)) continue
+
+    const rateTypeCode = inferAccommodationRateTypeCode(rate)
+
+    for (const child of rate.childRates) {
+      rows.push(
+        makeExtrasRow(supplier, match, `Child (${formatAgeBracket(child.ageFrom, child.ageTo)}) Sharing`, {
+          internalRowType: 'child_sharing',
+          dateFrom: rate.validFrom,
+          dateTo: rate.validTo,
+          cost: child.amount,
+          sell: child.amount,
+          childOnly: true,
+          rateCode: rateTypeCode,
+        }),
+      )
+    }
+  }
+
+  return rows
+}
+
 const ADDITIONAL_PAX_MATCH_THRESHOLD = 0.5
 
 function isFamilyOrPrivateHouseRoom(roomType: string): boolean {
@@ -600,6 +653,56 @@ function buildAdditionalPaxRows(
   return rows
 }
 
+/** True when an extrasMatches entry already accounts for this non-accommodation fee item. */
+function isHandledByExtrasMatch(na: NonAccommodationRate, extrasMatches: ServiceMatch[]): boolean {
+  const description = na.description.toLowerCase()
+  return extrasMatches.some(
+    (extra) =>
+      extra.status !== 'needs_creation' &&
+      (extra.extractedName.toLowerCase() === description ||
+        extra.peServiceName?.toLowerCase().includes(description) ||
+        description.includes(extra.extractedName.toLowerCase())),
+  )
+}
+
+/**
+ * Non-accommodation entries that are actually fee-shaped (conservancy/tax/levy/contribution)
+ * belong on Extras, not the Rates sheet — redirect anything not already covered by an
+ * extrasMatches entry into a park-fee-style Extras row on the eligible accommodation parents.
+ */
+function buildFeeRedirectRows(
+  extraction: ExtractionResult,
+  supplier: Supplier,
+  accommodationMatches: ServiceMatch[],
+  extrasMatches: ServiceMatch[],
+): ExtrasRow[] {
+  const rows: ExtrasRow[] = []
+  const parents = parkFeeParents(accommodationMatches)
+  if (parents.length === 0) return rows
+
+  for (const na of extraction.nonAccommodationRates ?? []) {
+    if (!na.released) continue
+    if (!isFeeShapedDescription(na.description)) continue
+    if (isHandledByExtrasMatch(na, extrasMatches)) continue
+
+    for (const parent of parents) {
+      rows.push(
+        makeExtrasRow(supplier, parent, `${na.description} Adult`, {
+          internalRowType: 'park_fee',
+          dateFrom: na.validFrom,
+          dateTo: na.validTo,
+          cost: na.cost,
+          sell: na.sell,
+          rateCode: na.rateTypeCode,
+          mandatory: true,
+        }),
+      )
+    }
+  }
+
+  return rows
+}
+
 export function buildExtrasRows(
   extraction: ExtractionResult,
   supplier: Supplier,
@@ -611,9 +714,11 @@ export function buildExtrasRows(
 
   const rows: ExtrasRow[] = [
     ...buildChildSharingRows(extraction, supplier, accommodationMatches, confirmedPolicies),
+    ...buildRateChildRateRows(extraction, supplier, accommodationMatches),
     ...buildAdditionalPaxRows(extraction, supplier, accommodationMatches),
     ...buildParkFeeRows(extraction, supplier, accommodationMatches),
     ...buildFestiveRows(extraction, supplier, accommodationMatches),
+    ...buildFeeRedirectRows(extraction, supplier, accommodationMatches, extrasMatches),
   ]
 
   for (const extra of extrasMatches) {
@@ -621,9 +726,7 @@ export function buildExtrasRows(
     const parent = accommodationMatches.find((m) => m.status === 'matched') ?? accommodationMatches[0]
     if (!parent) continue
 
-    const isConservancy =
-      extra.extractedName.toLowerCase().includes('conservancy') ||
-      extra.extractedName.toLowerCase().includes('park fee')
+    const isConservancy = isFeeShapedDescription(extra.extractedName)
 
     const property = extraction.properties[0] ?? supplier.name
     const extraName = isConservancy

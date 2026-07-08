@@ -40,7 +40,7 @@ import type {
   ExtractionProgress,
   ExtractionPropertyComplete,
 } from '@shared/types'
-import { toArrayBuffer, toExportSession } from '@shared/sessionUtils'
+import { requireUploadedPdfs, toArrayBuffer, toExportSession } from '@shared/sessionUtils'
 import { isExtractionSuggestedForSupplier } from '@shared/extractionUtils'
 import {
   buildMappingGroups,
@@ -356,7 +356,11 @@ export function ParseSession() {
   )
 
   const runExtractionForMappings = useCallback(
-    async (mappings: SupplierMapping[], peCatalog: Supplier[]) => {
+    async (
+      mappings: SupplierMapping[],
+      peCatalog: Supplier[],
+      pdfs?: { ratePDF: Uint8Array; contractForm: Uint8Array },
+    ) => {
       const reviewedSet = new Set(batchStore.reviewedPeIds)
       const queue = includedMappingsInOrder(mappings).filter(
         (m) => m.peSupplier && !reviewedSet.has(m.peSupplier.supplier_id),
@@ -422,10 +426,17 @@ export function ParseSession() {
         },
       )
 
+      const { ratePDF, contractForm } = pdfs
+        ? requireUploadedPdfs(pdfs.ratePDF, pdfs.contractForm)
+        : requireUploadedPdfs(
+            useSessionStore.getState().ratePDF,
+            useSessionStore.getState().contractForm,
+          )
+
       try {
         const extractionsByPeId = await window.electronAPI.parser.extractRatesForMappings(
-          store.ratePDF!,
-          store.contractForm!,
+          ratePDF,
+          contractForm,
           peCatalog,
           targets,
         )
@@ -528,7 +539,10 @@ export function ParseSession() {
       if (shouldFastPathMapping(peCatalog, discovery.detectedSuppliers)) {
         mappings = buildFastPathMappings(peCatalog, discovery.detectedSuppliers)
         batchStore.setMappings(mappings)
-        await runExtractionForMappings(mappings, peCatalog)
+        await runExtractionForMappings(mappings, peCatalog, {
+          ratePDF: rateBytes,
+          contractForm: formBytes,
+        })
         return
       }
 
@@ -576,7 +590,8 @@ export function ParseSession() {
   }, [store])
 
   const handleRetryExtraction = useCallback(async () => {
-    if (!store.supplier || !store.ratePDF || !store.contractForm) return
+    const { supplier, ratePDF, contractForm } = useSessionStore.getState()
+    if (!supplier || !ratePDF || !contractForm) return
     store.setStep(2)
     store.setStatus('loading')
     setErrorMessage(null)
@@ -586,7 +601,7 @@ export function ParseSession() {
         ? batchStore.mappings
         : [
             {
-              peSupplier: store.supplier,
+              peSupplier: supplier,
               detected: null,
               matchStatus: 'matched' as const,
               confidence: 'manual' as const,
@@ -595,7 +610,7 @@ export function ParseSession() {
               isPrimary: true,
             },
           ]
-      await runExtractionForMappings(mappings, peCatalog.length ? peCatalog : [store.supplier])
+      await runExtractionForMappings(mappings, peCatalog.length ? peCatalog : [supplier])
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : 'Rate extraction failed')
       store.setStatus('blocked')

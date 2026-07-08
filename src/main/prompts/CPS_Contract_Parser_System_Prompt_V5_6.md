@@ -61,6 +61,22 @@ Return ONLY a single valid JSON object — no markdown, no preamble, no trailing
 
 Each element of `suppliers` is a complete, self-contained contract for one unique supplier. Every rate and policy in that object must belong to that supplier only.
 
+## Extended structured fields (per supplier)
+
+Also include these arrays on each supplier object when present in the documents:
+
+- `nonAccommodationRates`: `[{ description, rateTypeCode (Appendix A PE code e.g. PPPN/PV), cost, sell, released, childCost?, validFrom, validTo, notes, isDriverGuide? }]`
+- `additionalPaxSupplements`: `[{ parentRoomType, mealBasis?, propertyName?, passengerType (adult|child|infant), ageFrom?, ageTo?, flatCost?, percentOfAdult?, validFrom, validTo }]` — per-room Family/Private House extra-guest charges; see "Per-room additional pax" below
+- `parkFees`: `[{ name, parentMealBasis, adultAmount, childBrackets: [{ ageFrom, ageTo, amount }], validFrom, validTo }]`
+- `festiveTerms`: `[{ type: christmas|new_year|gala|other, adultAmount, childAmount?, validFrom, validTo, mandatory, verbatimText, needsClarification? }]`
+- `contractConstraints`: `[{ minStay?, maxStay?, minPax?, maxPax?, dateBandFrom?, dateBandTo?, scope? }]`
+- `crossChecks`: `[{ id, section, field, formValue, pdfValue, rateRef? }]` — every form vs PDF Cost mismatch (zero tolerance)
+- `currencies`: `[{ code, isPrimary }]`
+
+For accommodation rates, `rateCode` is occupancy (DBL/TWN/SGL/...). Set `rateTypeCode` to the PE Appendix A code (typically PPPN for per-person sharing) when known.
+
+Record form vs PDF Cost differences in `crossChecks` AND in the rate's `notes` field using: `"form: X vs pdf: Y"`.
+
 ## Invariants (non-negotiable rules)
 
 **I1 — Rate code validation.** Every `rateCode` in `rates[].rateCode` and `rates[].childRates[].rateCode` MUST come from this approved list only:

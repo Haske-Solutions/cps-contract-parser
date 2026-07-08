@@ -29,6 +29,14 @@ function childCostForNonAccom(rate: NonAccommodationRate, adultBuy: number): num
   return 0
 }
 
+const FEE_KEYWORDS = ['conservancy', 'conservation', 'park fee', 'tax', 'levy', 'contribution']
+
+/** True when a description names a park/conservancy/tax-style fee that belongs on Extras, not Rates. */
+export function isFeeShapedDescription(description: string): boolean {
+  const lower = description.toLowerCase()
+  return FEE_KEYWORDS.some((keyword) => lower.includes(keyword))
+}
+
 export function buildNonAccommodationRows(
   extraction: ExtractionResult,
   supplier: Supplier,
@@ -49,6 +57,11 @@ export function buildNonAccommodationRows(
       continue
     }
 
+    if (isFeeShapedDescription(na.description)) {
+      // Park/conservancy/tax-style fees belong on Extras (see buildFeeRedirectRows), not Rates.
+      continue
+    }
+
     const costStr = String(na.cost)
     const resolvedCost = Number(
       resolveAmount(`non-accom:${na.description}:cost`, costStr, costStr, mismatchResolutions),
@@ -62,7 +75,15 @@ export function buildNonAccommodationRows(
           na.description.toLowerCase().includes(m.extractedName.toLowerCase()),
       )
 
-    if (match?.status === 'needs_creation') continue
+    if (match?.status !== 'matched' || !match.peServiceCode) {
+      validationNotes.push({
+        itemType: 'Non-Accommodation',
+        serviceName: na.description,
+        issue: `NEEDS CREATION: no confirmed in-use PE service match for '${na.description}'.`,
+        actionRequired: 'Match to an existing PE service or create one before export',
+      })
+      continue
+    }
 
     const rateType = lookupRateType(na.rateTypeCode)
     const bounds = resolveBounds({

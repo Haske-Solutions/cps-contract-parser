@@ -41,4 +41,13 @@ describe('supplierSearch', () => {
     expect(anchors[0]).toBe('Elewana')
     expect(anchors).toContain('Elewana Tortilis')
   })
+
+  it('skips a leading "The" so the property name anchors the PE lookup', () => {
+    const theContractForm = 'CPS The Manta Resort Accommodation Contract Form 2027 TZ.pdf'
+    const theRateSheet = 'CPS The Manta Resort Rack & Net Rates 2027 TZ.pdf'
+
+    const anchors = catalogAnchorTermsFromFilenames(theContractForm, theRateSheet)
+    expect(anchors).not.toContain('The')
+    expect(anchorTermFromFilenames(theContractForm, theRateSheet)).toBe('Manta')
+  })
 })

@@ -24,7 +24,7 @@ describe('accommodationSupplierCatalog', () => {
     expect(mockRunQueryBound).not.toHaveBeenCalled()
   })
 
-  it('queries accommodation-filtered suppliers by anchor term', async () => {
+  it('queries accommodation-filtered suppliers from dim_suppliers by anchor term', async () => {
     const rows = [
       { supplier_id: 1, name: 'Tortilis Camp', code: 'TC01', destination_country: 'KE' },
       { supplier_id: 2, name: 'Elsas Kopje', code: 'EK01', destination_country: 'KE' },
@@ -36,6 +36,9 @@ describe('accommodationSupplierCatalog', () => {
     expect(result).toEqual(rows)
     expect(mockRunQueryBound).toHaveBeenCalledOnce()
     const [sql, params] = mockRunQueryBound.mock.calls[0]!
+    expect(sql).toMatch(/FROM dim_suppliers s/)
+    expect(sql).toMatch(/INNER JOIN supplier_services ss/)
+    expect(sql).not.toMatch(/FROM fact_services/)
     expect(sql).toMatch(/type_name IN/)
     expect(sql).toMatch(/Double/)
     expect(sql).toMatch(/House/)

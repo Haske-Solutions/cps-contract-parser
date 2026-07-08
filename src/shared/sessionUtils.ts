@@ -29,3 +29,21 @@ export function toArrayBuffer(data: ArrayBuffer | Uint8Array): ArrayBuffer {
   if (data instanceof ArrayBuffer) return data
   return data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
 }
+
+/** Fresh copy for IPC — avoids stale store snapshots and detached ArrayBuffer views. */
+export function copyPdfBytes(data: Uint8Array): Uint8Array {
+  return new Uint8Array(data)
+}
+
+export function requireUploadedPdfs(
+  ratePDF: Uint8Array | null | undefined,
+  contractForm: Uint8Array | null | undefined,
+): { ratePDF: Uint8Array; contractForm: Uint8Array } {
+  if (!(ratePDF instanceof Uint8Array) || !(contractForm instanceof Uint8Array)) {
+    throw new Error('Missing uploaded PDFs. Return to Step 1 and upload both documents.')
+  }
+  return {
+    ratePDF: copyPdfBytes(ratePDF),
+    contractForm: copyPdfBytes(contractForm),
+  }
+}

@@ -19,7 +19,10 @@ describe('golden export', () => {
     const { rateRows, extrasRows, flags } = buildRows(session)
 
     expect(rateRows).toMatchSnapshot()
-    expect(extrasRows).toEqual([])
+    // Non-CIOR: child cost moves off the Accommodation row and onto an Extras row (Rule 18).
+    expect(extrasRows).toHaveLength(1)
+    expect(extrasRows[0]?.internalRowType).toBe('child_sharing')
+    expect(extrasRows[0]?.cost).toBe(175)
     expect(flags.filter((f) => f.severity === 'stop')).toEqual([])
   })
 })

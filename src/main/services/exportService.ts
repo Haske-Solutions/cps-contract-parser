@@ -17,7 +17,7 @@ import type {
 } from '../../shared/types'
 import { buildCiorRows } from './ciorCalculator'
 import { getExtractionValidationFlags } from './extractionValidation'
-import { buildExtrasRows } from './extrasEngine'
+import { buildExtrasRows, isCiorService } from './extrasEngine'
 import {
   buildNonAccommodationRows,
   inferAccommodationRateTypeCode,
@@ -88,14 +88,24 @@ export function buildRows(session: ParseSession): {
     }
 
     const match = findMatchForRate(rate, serviceMatches)
-    if (match?.status === 'needs_creation') {
-      flags.push({
-        severity: 'needs_creation',
-        code: 'ACCOMMODATION_SERVICE_MISSING',
-        message: `NEEDS CREATION: contract prices '${rate.roomType}' but no matching in-use PE service.`,
-        affectedService: `${rate.propertyName} — ${rate.roomType}`,
-        details: `Proposed: ${rate.mealBasis} ${rate.roomType}`,
-      })
+    if (match?.status !== 'matched') {
+      if (match?.status === 'multiple_matches') {
+        flags.push({
+          severity: 'stop',
+          code: 'ACCOMMODATION_SERVICE_AMBIGUOUS',
+          message: `AMBIGUOUS MATCH: '${rate.roomType}' matches multiple PE services and has not been resolved.`,
+          affectedService: `${rate.propertyName} — ${rate.roomType}`,
+          details: `Proposed: ${rate.mealBasis} ${rate.roomType}`,
+        })
+      } else {
+        flags.push({
+          severity: 'needs_creation',
+          code: 'ACCOMMODATION_SERVICE_MISSING',
+          message: `NEEDS CREATION: contract prices '${rate.roomType}' but no matching in-use PE service.`,
+          affectedService: `${rate.propertyName} — ${rate.roomType}`,
+          details: `Proposed: ${rate.mealBasis} ${rate.roomType}`,
+        })
+      }
       continue
     }
 
@@ -154,7 +164,10 @@ export function buildRows(session: ParseSession): {
       })
     }
 
-    const childCost = rate.childRates.length > 0 ? rate.childRates[0].amount : 0
+    const childCost =
+      isCiorService(match?.peServiceName) && rate.childRates.length > 0
+        ? rate.childRates[0].amount
+        : 0
 
     rateRows.push({
       supplierName: supplier.name,

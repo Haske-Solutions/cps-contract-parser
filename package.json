@@ -34,7 +34,7 @@
     "dev:server": "npm run dev --prefix server",
     "start:server": "npm run start --prefix server",
     "rebuild:native": "npx @electron/rebuild --force --only keytar,@duckdb/node-api",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "node scripts/ensure-electron.js && electron-builder install-app-deps"
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "^3.1071.0",
