@@ -206,6 +206,53 @@ export function scoreServiceRefAgainstRate(serviceRef: string, rate: ExtractedRa
   return covered / required.size
 }
 
+/** Occupancy-count decoration words found in PE-name parentheticals, e.g. "(2 Adults + 2 Chd)". */
+const OCCUPANCY_DECORATION_WORDS = new Set([
+  'ADULT',
+  'ADULTS',
+  'CHD',
+  'CHILD',
+  'CHILDREN',
+  'PAX',
+  'GUEST',
+  'GUESTS',
+  'PERSON',
+  'PERSONS',
+])
+
+function isRoomIdentityToken(token: string): boolean {
+  if (/^\d+$/.test(token)) return false
+  if (OCCUPANCY_DECORATION_WORDS.has(token)) return false
+  if (!/[A-Z0-9]/.test(token)) return false
+  return true
+}
+
+/**
+ * Like scoreServiceRefAgainstRate, but ignores capacity-decoration tokens (occupancy counts,
+ * "Adults"/"Chd"/etc., and stray symbols) pulled from PE-name parentheticals — e.g.
+ * "FB Family Tent (2 Adults + 2 Chd)" should still score against a plain "Family Tent" rate.
+ * Use only where room identity (not tier/occupancy disambiguation) is what's being confirmed.
+ */
+export function scoreRoomIdentityOnly(serviceRef: string, rate: ExtractedRate): number {
+  const normalizedRef = serviceRef.replace(/\bCIOR\b/gi, ' ').replace(/\s+/g, ' ').trim()
+  if (!normalizedRef) return 1
+
+  const refTokens = tokenizePeServiceName(normalizedRef)
+  const required = new Set([...requiredTokenSet(refTokens)].filter(isRoomIdentityToken))
+  if (required.size === 0) return 1
+
+  const rateTokens = tokenizeRateRecord(rate)
+  const rateAll = serviceTokenUnion(rateTokens)
+  for (const t of tokenizeText(rate.roomType)) rateAll.add(t)
+  for (const t of tokenizeText(rate.mealBasis)) rateAll.add(t)
+
+  let covered = 0
+  for (const t of required) {
+    if (rateAll.has(t)) covered++
+  }
+  return covered / required.size
+}
+
 /** Occupancy word(s) implied by a PE rate code, used only to break ties among otherwise-equal candidates. */
 function occupancyWordsForRateCode(rateCode: string): string[] {
   switch (rateCode.toUpperCase()) {

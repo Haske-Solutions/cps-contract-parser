@@ -18,7 +18,7 @@ import type {
   ServiceMatch,
   Supplier,
 } from '../../shared/types'
-import { scoreServiceRefAgainstRate } from '../../shared/serviceTokenMatcher'
+import { scoreServiceRefAgainstRate, scoreRoomIdentityOnly } from '../../shared/serviceTokenMatcher'
 import { findMatchForRate } from '../../shared/serviceMatcher'
 import { flagsForRowType } from './extrasFlags'
 import { consolidateFlatExtras, sortExtrasRows } from './extrasSort'
@@ -152,16 +152,28 @@ function makeExtrasRow(
   }
 }
 
+/** Resolves the eligible parent list per-fee, honoring a fee's own `parentMealBasis` (Rule 19 override). */
+function parentsForFee(accommodationMatches: ServiceMatch[], parentMealBasis: string): ServiceMatch[] {
+  const basis = parentMealBasis?.toUpperCase()
+  if (basis === 'FB') {
+    const fbOnly = accommodationMatches.filter((m) => m.peServiceName && isFbParent(m.peServiceName))
+    return fbOnly.length > 0 ? fbOnly : accommodationMatches
+  }
+  if (basis === 'GPKG') return parkFeeParents(accommodationMatches)
+  return parkFeeParents(accommodationMatches)
+}
+
 function buildParkFeeRows(
   extraction: ExtractionResult,
   supplier: Supplier,
   accommodationMatches: ServiceMatch[],
 ): ExtrasRow[] {
   const rows: ExtrasRow[] = []
-  const parents = parkFeeParents(accommodationMatches)
-  if (parents.length === 0) return rows
 
   for (const fee of extraction.parkFees ?? []) {
+    const parents = parentsForFee(accommodationMatches, fee.parentMealBasis)
+    if (parents.length === 0) continue
+
     for (const parent of parents) {
       if (parentAllowsAdultParkFee(parent.peServiceName ?? '')) {
         rows.push(
@@ -538,7 +550,7 @@ function findPerRoomRateForParent(
     if (rate.isNonAccommodation) return false
     if (rate.validFrom !== supplement.validFrom || rate.validTo !== supplement.validTo) return false
     if (!isPerRoomRateType(inferAccommodationRateTypeCode(rate))) return false
-    return scoreServiceRefAgainstRate(parentRef, rate) >= ADDITIONAL_PAX_MATCH_THRESHOLD
+    return scoreRoomIdentityOnly(parentRef, rate) >= ADDITIONAL_PAX_MATCH_THRESHOLD
   })
 }
 

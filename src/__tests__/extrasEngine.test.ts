@@ -474,3 +474,120 @@ describe('extrasEngine', () => {
     expect(rows[0]?.internalRowType).toBe('additional_child')
   })
 })
+
+describe('park fee meal-basis targeting (Bug 7)', () => {
+  const fbDouble: ServiceMatch = {
+    ...mockServiceMatch,
+    peServiceName: 'FB Double Safari Tent',
+    peServiceCode: 'FBD001',
+  }
+  const gpkgDouble: ServiceMatch = {
+    ...mockServiceMatch,
+    peServiceId: 106,
+    peServiceName: 'GPKG Double Safari Tent',
+    peServiceCode: 'GPD001',
+  }
+
+  it('attaches an FB-scoped fee only to FB parents, never GPKG, when both exist', () => {
+    const extraction = {
+      ...baseExtraction,
+      parkFees: [
+        {
+          name: 'Amboseli National Park Fee',
+          parentMealBasis: 'FB',
+          adultAmount: 95,
+          childBrackets: [],
+          validFrom: '2026-01-01',
+          validTo: '2026-12-31',
+        },
+      ],
+    } satisfies ExtractionResult
+
+    const rows = buildExtrasRows(extraction, mockSupplier, [fbDouble, gpkgDouble], [], [])
+    const feeRows = rows.filter(
+      (r) => r.internalRowType === 'park_fee' && r.extraName.includes('Amboseli National Park Fee'),
+    )
+
+    expect(feeRows.some((r) => r.parentServiceName === 'FB Double Safari Tent')).toBe(true)
+    expect(feeRows.some((r) => r.parentServiceName === 'GPKG Double Safari Tent')).toBe(false)
+  })
+
+  it('attaches a GPKG-scoped fee only to GPKG parents (existing behavior, must not regress)', () => {
+    const extraction = {
+      ...baseExtraction,
+      parkFees: [
+        {
+          name: 'Kitirua Conservancy Fee',
+          parentMealBasis: 'GPKG',
+          adultAmount: 50,
+          childBrackets: [],
+          validFrom: '2026-01-01',
+          validTo: '2026-12-31',
+        },
+      ],
+    } satisfies ExtractionResult
+
+    const rows = buildExtrasRows(extraction, mockSupplier, [fbDouble, gpkgDouble], [], [])
+    const feeRows = rows.filter(
+      (r) => r.internalRowType === 'park_fee' && r.extraName.includes('Kitirua Conservancy Fee'),
+    )
+
+    expect(feeRows.some((r) => r.parentServiceName === 'GPKG Double Safari Tent')).toBe(true)
+    expect(feeRows.some((r) => r.parentServiceName === 'FB Double Safari Tent')).toBe(false)
+  })
+})
+
+describe('additional-pax percent conversion against decorated PE names (Bug 8)', () => {
+  it('converts 75%/25% correctly against a 4-pax-based unit rate even when the PE name has parenthetical decoration', () => {
+    const familyParent: ServiceMatch = {
+      ...mockServiceMatch,
+      peServiceId: 105,
+      peServiceName: 'FB Family Tent (2 Adults + 2 Chd)',
+      peServiceCode: 'FT001',
+    }
+    const extraction = {
+      ...baseExtraction,
+      rates: [
+        {
+          ...mockExtractedRate,
+          roomType: 'Family Tent',
+          mealBasis: 'FB',
+          rateTypeCode: 'PRPN',
+          rateAmount: 2525,
+          occupancyRules: 'based on 4 pax',
+          maxPax: 4,
+          validFrom: '2026-01-01',
+          validTo: '2026-03-31',
+        },
+      ],
+      additionalPaxSupplements: [
+        {
+          parentRoomType: 'Family Tent',
+          mealBasis: 'FB',
+          passengerType: 'adult' as const,
+          percentOfAdult: 75,
+          validFrom: '2026-01-01',
+          validTo: '2026-03-31',
+        },
+        {
+          parentRoomType: 'Family Tent',
+          mealBasis: 'FB',
+          passengerType: 'child' as const,
+          ageFrom: 12,
+          ageTo: 17.99,
+          percentOfAdult: 25,
+          validFrom: '2026-01-01',
+          validTo: '2026-03-31',
+        },
+      ],
+    } satisfies ExtractionResult
+
+    const rows = buildExtrasRows(extraction, mockSupplier, [familyParent], [], [])
+
+    const additionalAdult = rows.find((r) => r.internalRowType === 'additional_adult')
+    const additionalChild = rows.find((r) => r.internalRowType === 'additional_child')
+
+    expect(additionalAdult?.pricePercent).toBeCloseTo(18.75)
+    expect(additionalChild?.pricePercent).toBeCloseTo(6.25)
+  })
+})
