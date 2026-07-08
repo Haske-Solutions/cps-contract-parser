@@ -258,6 +258,7 @@ export function buildRows(session: ParseSession): {
       accommodationMatches,
       extrasMatches,
       confirmedPolicies,
+      serviceMatches,
     ),
   )
 

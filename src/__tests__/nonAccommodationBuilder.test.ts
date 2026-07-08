@@ -30,7 +30,7 @@ describe('nonAccommodationBuilder', () => {
     const rows = buildNonAccommodationRows(extractionWithNonAccom, mockSupplier, [], [], notes)
 
     expect(rows).toHaveLength(0)
-    expect(notes.some((n) => n.issue.includes('NEEDS CREATION'))).toBe(true)
+    expect(notes.some((n) => n.issue.includes('did not match any bookable PE service'))).toBe(true)
   })
 
   it('redirects fee-shaped descriptions (conservancy/tax/levy/contribution) away from the Rates sheet', () => {

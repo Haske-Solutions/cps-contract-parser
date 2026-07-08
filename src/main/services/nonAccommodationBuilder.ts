@@ -37,10 +37,33 @@ export function isFeeShapedDescription(description: string): boolean {
   return FEE_KEYWORDS.some((keyword) => lower.includes(keyword))
 }
 
+export interface ServiceMatchLike {
+  extractedName: string
+  peServiceId: number | null
+  peServiceName: string | null
+  peServiceCode: string | null
+  status: string
+}
+
+/** Shared lookup so Rates-sheet matching and Extras-redirect matching never disagree. */
+export function findNonAccommodationServiceMatch(
+  na: NonAccommodationRate,
+  serviceMatches: ServiceMatchLike[],
+): ServiceMatchLike | undefined {
+  return (
+    serviceMatches.find((m) => m.extractedName.toLowerCase() === na.description.toLowerCase()) ??
+    serviceMatches.find(
+      (m) =>
+        m.peServiceName?.toLowerCase().includes(na.description.toLowerCase()) ||
+        na.description.toLowerCase().includes(m.extractedName.toLowerCase()),
+    )
+  )
+}
+
 export function buildNonAccommodationRows(
   extraction: ExtractionResult,
   supplier: Supplier,
-  serviceMatches: { extractedName: string; peServiceId: number | null; peServiceName: string | null; peServiceCode: string | null; status: string }[],
+  serviceMatches: ServiceMatchLike[],
   mismatchResolutions: MismatchResolution[],
   validationNotes: ValidationNote[],
 ): RateRow[] {
@@ -57,8 +80,22 @@ export function buildNonAccommodationRows(
       continue
     }
 
+    const match = findNonAccommodationServiceMatch(na, serviceMatches)
+
     if (isFeeShapedDescription(na.description)) {
       // Park/conservancy/tax-style fees belong on Extras (see buildFeeRedirectRows), not Rates.
+      continue
+    }
+
+    if (match?.status !== 'matched' || !match.peServiceCode) {
+      // No real bookable PE service for this — treat as an unclassified fee candidate,
+      // not a silent drop. buildFeeRedirectRows will pick it up via the same "unmatched" check.
+      validationNotes.push({
+        itemType: 'Non-Accommodation',
+        serviceName: na.description,
+        issue: `'${na.description}' did not match any bookable PE service — loaded onto Extras against accommodation parents as a probable fee. Confirm this isn't actually a new non-accommodation service that needs creating in PE.`,
+        actionRequired: 'Confirm fee classification, or create the missing PE service if this is a genuine bookable service',
+      })
       continue
     }
 
@@ -66,24 +103,6 @@ export function buildNonAccommodationRows(
     const resolvedCost = Number(
       resolveAmount(`non-accom:${na.description}:cost`, costStr, costStr, mismatchResolutions),
     )
-
-    const match =
-      serviceMatches.find((m) => m.extractedName.toLowerCase() === na.description.toLowerCase()) ??
-      serviceMatches.find(
-        (m) =>
-          m.peServiceName?.toLowerCase().includes(na.description.toLowerCase()) ||
-          na.description.toLowerCase().includes(m.extractedName.toLowerCase()),
-      )
-
-    if (match?.status !== 'matched' || !match.peServiceCode) {
-      validationNotes.push({
-        itemType: 'Non-Accommodation',
-        serviceName: na.description,
-        issue: `NEEDS CREATION: no confirmed in-use PE service match for '${na.description}'.`,
-        actionRequired: 'Match to an existing PE service or create one before export',
-      })
-      continue
-    }
 
     const rateType = lookupRateType(na.rateTypeCode)
     const bounds = resolveBounds({

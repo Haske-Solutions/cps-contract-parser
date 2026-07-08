@@ -23,10 +23,12 @@ import { findMatchForRate } from '../../shared/serviceMatcher'
 import { flagsForRowType } from './extrasFlags'
 import { consolidateFlatExtras, sortExtrasRows } from './extrasSort'
 import {
+  findNonAccommodationServiceMatch,
   inferAccommodationRateTypeCode,
   isFeeShapedDescription,
   isPerPersonRateType,
   isPerRoomRateType,
+  type ServiceMatchLike,
 } from './nonAccommodationBuilder'
 
 function isGpkgParent(name: string): boolean {
@@ -666,15 +668,19 @@ function isHandledByExtrasMatch(na: NonAccommodationRate, extrasMatches: Service
 }
 
 /**
- * Non-accommodation entries that are actually fee-shaped (conservancy/tax/levy/contribution)
- * belong on Extras, not the Rates sheet — redirect anything not already covered by an
- * extrasMatches entry into a park-fee-style Extras row on the eligible accommodation parents.
+ * Non-accommodation entries belong on Extras, not the Rates sheet, when either the description
+ * is keyword-obvious (conservancy/tax/levy/contribution) or — the stronger signal — the entry
+ * never matched a real bookable PE service at all (no PE service is ever named "Kwanini
+ * Foundation & Community Fee"). Per-vehicle/per-item entries that fail to match are left out of
+ * this redirect (NEEDS CREATION only) since those are far more likely to be genuine missing
+ * services than fees; only per-person unmatched entries are auto-redirected as probable fees.
  */
 function buildFeeRedirectRows(
   extraction: ExtractionResult,
   supplier: Supplier,
   accommodationMatches: ServiceMatch[],
   extrasMatches: ServiceMatch[],
+  nonAccomServiceMatches: ServiceMatchLike[],
 ): ExtrasRow[] {
   const rows: ExtrasRow[] = []
   const parents = parkFeeParents(accommodationMatches)
@@ -682,8 +688,15 @@ function buildFeeRedirectRows(
 
   for (const na of extraction.nonAccommodationRates ?? []) {
     if (!na.released) continue
-    if (!isFeeShapedDescription(na.description)) continue
     if (isHandledByExtrasMatch(na, extrasMatches)) continue
+
+    const looksLikeFee = isFeeShapedDescription(na.description)
+    if (!looksLikeFee) {
+      const hasRealServiceMatch =
+        findNonAccommodationServiceMatch(na, nonAccomServiceMatches)?.status === 'matched'
+      if (hasRealServiceMatch) continue
+      if (!isPerPersonRateType(na.rateTypeCode)) continue
+    }
 
     for (const parent of parents) {
       rows.push(
@@ -709,6 +722,7 @@ export function buildExtrasRows(
   accommodationMatches: ServiceMatch[],
   extrasMatches: ServiceMatch[],
   confirmedPolicies: ConfirmedPolicy[],
+  nonAccomServiceMatches: ServiceMatchLike[] = [],
 ): ExtrasRow[] {
   if (accommodationMatches.filter((m) => m.status === 'matched').length === 0) return []
 
@@ -718,7 +732,7 @@ export function buildExtrasRows(
     ...buildAdditionalPaxRows(extraction, supplier, accommodationMatches),
     ...buildParkFeeRows(extraction, supplier, accommodationMatches),
     ...buildFestiveRows(extraction, supplier, accommodationMatches),
-    ...buildFeeRedirectRows(extraction, supplier, accommodationMatches, extrasMatches),
+    ...buildFeeRedirectRows(extraction, supplier, accommodationMatches, extrasMatches, nonAccomServiceMatches),
   ]
 
   for (const extra of extrasMatches) {

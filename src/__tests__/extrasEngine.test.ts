@@ -355,6 +355,82 @@ describe('extrasEngine', () => {
     expect(additionalAdult.every((r) => r.internalRowType === 'additional_adult')).toBe(true)
   })
 
+  it('redirects an unmatched per-person non-accommodation entry to Extras as a probable fee', () => {
+    const aiMatch: ServiceMatch = { ...mockServiceMatch, peServiceName: 'AI Double Villa', peServiceCode: 'ADV001' }
+    const extraction = {
+      ...baseExtraction,
+      nonAccommodationRates: [
+        {
+          description: 'Kwanini Foundation & Community Fee',
+          rateTypeCode: 'PPPN',
+          cost: 5,
+          sell: 5,
+          released: true,
+          validFrom: '2026-01-01',
+          validTo: '2026-12-31',
+          notes: '',
+        },
+      ],
+    } satisfies ExtractionResult
+
+    const rows = buildExtrasRows(extraction, mockSupplier, [aiMatch], [], [], [])
+    const feeRows = rows.filter((r) => r.internalRowType === 'park_fee')
+
+    expect(feeRows).toHaveLength(1)
+    expect(feeRows[0]?.extraName).toContain('Kwanini Foundation & Community Fee')
+    expect(feeRows[0]?.cost).toBe(5)
+  })
+
+  it('does not redirect an unmatched per-vehicle/item non-accommodation entry (likely a genuine missing service)', () => {
+    const aiMatch: ServiceMatch = { ...mockServiceMatch, peServiceName: 'AI Double Villa', peServiceCode: 'ADV001' }
+    const extraction = {
+      ...baseExtraction,
+      nonAccommodationRates: [
+        {
+          description: 'Balloon Safari Transfer',
+          rateTypeCode: 'PV',
+          cost: 80,
+          sell: 80,
+          released: true,
+          validFrom: '2026-01-01',
+          validTo: '2026-12-31',
+          notes: '',
+        },
+      ],
+    } satisfies ExtractionResult
+
+    const rows = buildExtrasRows(extraction, mockSupplier, [aiMatch], [], [], [])
+    const feeRows = rows.filter((r) => r.internalRowType === 'park_fee')
+
+    expect(feeRows).toHaveLength(0)
+  })
+
+  it('does not redirect a non-accommodation entry that matched a real bookable PE service', () => {
+    const aiMatch: ServiceMatch = { ...mockServiceMatch, peServiceName: 'AI Double Villa', peServiceCode: 'ADV001' }
+    const extraction = {
+      ...baseExtraction,
+      nonAccommodationRates: [
+        {
+          description: 'Laundry',
+          rateTypeCode: 'PPPN',
+          cost: 10,
+          sell: 10,
+          released: true,
+          validFrom: '2026-01-01',
+          validTo: '2026-12-31',
+          notes: '',
+        },
+      ],
+    } satisfies ExtractionResult
+
+    const rows = buildExtrasRows(extraction, mockSupplier, [aiMatch], [], [], [
+      { extractedName: 'Laundry', peServiceId: 1, peServiceName: 'Laundry', peServiceCode: 'L1', status: 'matched' },
+    ])
+    const feeRows = rows.filter((r) => r.internalRowType === 'park_fee')
+
+    expect(feeRows).toHaveLength(0)
+  })
+
   it('emits Additional Child rows from additionalPaxSupplements', () => {
     const familyParent: ServiceMatch = {
       ...mockServiceMatch,
